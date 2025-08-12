@@ -104,6 +104,7 @@ pub struct App {
     pub packet_history_expanded: bool,
     pub sort_column: SortColumn,
     pub sort_ascending: bool,
+    pub selected_host_id: Option<String>,
 }
 
 impl App {
@@ -129,13 +130,13 @@ impl App {
             visible_height: 20,
             show_help: false,
             theme,
-
             packet_history: Vec::new(),
             packet_scroll_offset: 0,
             max_packet_history: 1000,
             packet_history_expanded: false,
-            sort_column: SortColumn::ClockIdentity,
-            sort_ascending: true,
+            sort_column: SortColumn::State,
+            sort_ascending: false,
+            selected_host_id: None,
         })
     }
 
@@ -169,6 +170,9 @@ impl App {
         let mut last_tick = Instant::now();
 
         loop {
+            // Ensure host selection is consistent before drawing UI
+            self.restore_host_selection();
+
             // Draw the UI
             terminal.draw(|f| ui(f, self))?;
 
@@ -231,6 +235,7 @@ impl App {
             KeyCode::Char('c') => {
                 self.ptp_tracker.clear_hosts();
                 self.selected_index = 0;
+                self.selected_host_id = None;
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 self.move_selection_up();
@@ -279,14 +284,13 @@ impl App {
         Ok(())
     }
 
-    async fn update_data(&mut self) -> Result<()> {
-        let processed_packets = self.ptp_tracker.scan_network().await?;
+    pub async fn update_data(&mut self) -> Result<()> {
+        // Update the stored selected host ID from current selection
+        if let Some(host) = self.get_hosts().get(self.selected_index) {
+            self.selected_host_id = Some(host.clock_identity.clone());
+        }
 
-        // Store current host selection before processing packets
-        let selected_host_id = self
-            .get_hosts()
-            .get(self.selected_index)
-            .map(|host| host.clock_identity.clone());
+        let processed_packets = self.ptp_tracker.scan_network().await?;
 
         // Add packets to history
         for packet in processed_packets {
@@ -306,12 +310,8 @@ impl App {
             self.add_packet(packet_info);
         }
 
-        // Restore host selection if we had one and it still exists
-        if let Some(selected_clock_id) = selected_host_id {
-            self.restore_host_selection(&selected_clock_id);
-        }
-
-        // Packets are now always shown with newest first, no auto-scroll
+        // Always restore host selection based on stored ID
+        self.restore_host_selection();
 
         self.last_update = Instant::now();
         Ok(())
@@ -321,6 +321,10 @@ impl App {
         let hosts = self.ptp_tracker.get_hosts();
         if !hosts.is_empty() && self.selected_index > 0 {
             self.selected_index -= 1;
+            // Update stored host ID
+            if let Some(host) = self.get_hosts().get(self.selected_index) {
+                self.selected_host_id = Some(host.clock_identity.clone());
+            }
             // Scroll up immediately if we're at the top of the visible area
             if self.selected_index < self.host_scroll_offset {
                 self.host_scroll_offset = self.selected_index;
@@ -332,6 +336,10 @@ impl App {
         let hosts = self.ptp_tracker.get_hosts();
         if !hosts.is_empty() && self.selected_index < hosts.len() - 1 {
             self.selected_index += 1;
+            // Update stored host ID
+            if let Some(host) = self.get_hosts().get(self.selected_index) {
+                self.selected_host_id = Some(host.clock_identity.clone());
+            }
             // Scroll down immediately if we're at the bottom of the visible area
             let last_visible_index =
                 self.host_scroll_offset + self.visible_height.saturating_sub(1);
@@ -341,7 +349,9 @@ impl App {
                 } else {
                     0
                 };
-                self.host_scroll_offset = (self.host_scroll_offset + 1).min(max_scroll_offset);
+                self.host_scroll_offset = (self.selected_index + 1)
+                    .saturating_sub(self.visible_height)
+                    .min(max_scroll_offset);
             }
         }
     }
@@ -401,6 +411,10 @@ impl App {
 
         // Move up by 10 items or to the beginning
         self.selected_index = self.selected_index.saturating_sub(10);
+        // Update stored host ID
+        if let Some(host) = self.get_hosts().get(self.selected_index) {
+            self.selected_host_id = Some(host.clock_identity.clone());
+        }
         // Adjust scroll to keep selection in view
         if self.selected_index < self.host_scroll_offset {
             self.host_scroll_offset = self.selected_index;
@@ -416,6 +430,11 @@ impl App {
         // Move down by 10 items or to the end
         let max_index = hosts.len().saturating_sub(1);
         self.selected_index = (self.selected_index + 10).min(max_index);
+
+        // Update stored host ID
+        if let Some(host) = self.get_hosts().get(self.selected_index) {
+            self.selected_host_id = Some(host.clock_identity.clone());
+        }
 
         // Adjust scroll to keep selection in view
         let last_visible_index = self.host_scroll_offset + visible_height - 1;
@@ -435,12 +454,20 @@ impl App {
     pub fn move_selection_to_top(&mut self) {
         self.selected_index = 0;
         self.host_scroll_offset = 0;
+        // Update stored host ID
+        if let Some(host) = self.get_hosts().get(0) {
+            self.selected_host_id = Some(host.clock_identity.clone());
+        }
     }
 
     pub fn move_selection_to_bottom(&mut self, visible_height: usize) {
         let hosts = self.ptp_tracker.get_hosts();
         if !hosts.is_empty() && visible_height > 0 {
             self.selected_index = hosts.len().saturating_sub(1);
+            // Update stored host ID
+            if let Some(host) = hosts.get(self.selected_index) {
+                self.selected_host_id = Some(host.clock_identity.clone());
+            }
             // Scroll to show the bottom, with selected item at the bottom of visible area
             let max_scroll_offset = if hosts.len() > visible_height {
                 hosts.len() - visible_height
@@ -513,47 +540,26 @@ impl App {
 
     pub fn cycle_sort_column(&mut self) {
         // Store currently selected host before sorting changes
-        let selected_host_id = self
-            .get_hosts()
-            .get(self.selected_index)
-            .map(|h| h.clock_identity.clone());
-
         self.sort_column = self.sort_column.next();
 
         // Restore selection after sorting
-        if let Some(host_id) = selected_host_id {
-            self.restore_host_selection(&host_id);
-        }
+        self.restore_host_selection();
     }
 
     pub fn cycle_sort_column_previous(&mut self) {
         // Store currently selected host before sorting changes
-        let selected_host_id = self
-            .get_hosts()
-            .get(self.selected_index)
-            .map(|h| h.clock_identity.clone());
-
         self.sort_column = self.sort_column.previous();
 
         // Restore selection after sorting
-        if let Some(host_id) = selected_host_id {
-            self.restore_host_selection(&host_id);
-        }
+        self.restore_host_selection();
     }
 
     pub fn toggle_sort_direction(&mut self) {
         // Store currently selected host before sorting changes
-        let selected_host_id = self
-            .get_hosts()
-            .get(self.selected_index)
-            .map(|h| h.clock_identity.clone());
-
         self.sort_ascending = !self.sort_ascending;
 
         // Restore selection after sorting
-        if let Some(host_id) = selected_host_id {
-            self.restore_host_selection(&host_id);
-        }
+        self.restore_host_selection();
     }
 
     pub fn is_sort_ascending(&self) -> bool {
@@ -577,15 +583,51 @@ impl App {
         self.packet_scroll_offset
     }
 
-    fn restore_host_selection(&mut self, clock_id: &str) {
-        // Try to find the host again in the updated list
-        let hosts = self.get_hosts();
-        for (index, host) in hosts.iter().enumerate() {
-            if host.clock_identity == clock_id {
-                self.selected_index = index;
-                self.ensure_host_visible(20); // Use default visible height
-                break;
+    fn restore_host_selection(&mut self) {
+        // If we have a stored host ID, try to find it in the current list
+        if let Some(ref stored_host_id) = self.selected_host_id.clone() {
+            let hosts = self.get_hosts();
+
+            // Try to find the host by clock identity
+            for (index, host) in hosts.iter().enumerate() {
+                if host.clock_identity == *stored_host_id {
+                    self.selected_index = index;
+                    self.ensure_host_visible(20);
+                    return;
+                }
             }
+
+            // If we can't find the stored host, it might have been removed
+            // Keep the current index but ensure it's within bounds
+            let hosts_len = hosts.len();
+            let new_index = if self.selected_index >= hosts_len {
+                hosts_len.saturating_sub(1)
+            } else {
+                self.selected_index
+            };
+
+            // Get the host at the new index for updating stored ID
+            let new_host_id = hosts.get(new_index).map(|h| h.clock_identity.clone());
+
+            // Now update the fields
+            self.selected_index = new_index;
+            self.selected_host_id = new_host_id;
+        } else {
+            // No stored selection, ensure current index is valid
+            let hosts = self.get_hosts();
+            let hosts_len = hosts.len();
+            let new_index = if self.selected_index >= hosts_len {
+                hosts_len.saturating_sub(1)
+            } else {
+                self.selected_index
+            };
+
+            // Get the host at the new index for storing ID
+            let new_host_id = hosts.get(new_index).map(|h| h.clock_identity.clone());
+
+            // Update the fields
+            self.selected_index = new_index;
+            self.selected_host_id = new_host_id;
         }
     }
 
