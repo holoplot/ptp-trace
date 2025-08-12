@@ -12,6 +12,40 @@ use crate::{
     version,
 };
 
+// Helper function to create aligned label-value pairs
+fn create_aligned_field<'a>(
+    label: &'a str,
+    value: String,
+    label_width: usize,
+    theme: &'a crate::themes::Theme,
+) -> Line<'a> {
+    Line::from(vec![
+        Span::styled(
+            format!("{:width$}", label, width = label_width),
+            Style::default().fg(theme.text_secondary),
+        ),
+        Span::styled(value, Style::default().fg(theme.text_primary)),
+    ])
+}
+
+fn create_aligned_field_with_vendor<'a>(
+    label: &'a str,
+    value: String,
+    vendor_info: String,
+    label_width: usize,
+    theme: &'a crate::themes::Theme,
+    value_color: Color,
+) -> Line<'a> {
+    Line::from(vec![
+        Span::styled(
+            format!("{:width$}", label, width = label_width),
+            Style::default().fg(theme.text_secondary),
+        ),
+        Span::styled(value, Style::default().fg(value_color)),
+        Span::styled(vendor_info, Style::default().fg(theme.vendor_text)),
+    ])
+}
+
 pub fn ui(f: &mut Frame, app: &mut App) {
     let chunks = if app.is_packet_history_expanded() {
         // Expanded view: split roughly 50/50 between hosts and packets
@@ -352,146 +386,95 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
     let selected_index = app.get_selected_index();
 
     let details_text = if let Some(host) = hosts.get(selected_index) {
+        // Define the width for label alignment
+        const LABEL_WIDTH: usize = 22; // Width for "Follow-Up Timestamp: "
+
         vec![
             // Host details section
-            Line::from(vec![
-                Span::styled(
-                    "Clock Identity: ",
-                    Style::default().fg(theme.text_secondary),
-                ),
-                Span::styled(
-                    host.clock_identity.clone(),
-                    Style::default().fg(theme.text_primary),
-                ),
-                Span::styled(
-                    host.get_vendor_name()
-                        .map(|vendor| format!(" ({})", vendor))
-                        .unwrap_or_default(),
-                    Style::default().fg(theme.vendor_text),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("IP Address: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.ip_address.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Port: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.port.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("State: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.state.to_string(),
-                    Style::default().fg(theme.get_state_color(&host.state)),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Domain: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.domain_number.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Priority: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.priority1.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Clock Class: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.clock_class.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Accuracy: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    format!("0x{:02X}", host.clock_accuracy),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "Selected Leader: ",
-                    Style::default().fg(theme.text_secondary),
-                ),
-                Span::styled(
-                    host.selected_leader_id
-                        .as_deref()
-                        .unwrap_or("None")
-                        .to_string(),
-                    Style::default()
-                        .fg(theme.get_confidence_color(host.selected_leader_confidence)),
-                ),
-                Span::styled(
-                    host.selected_leader_id
-                        .as_deref()
-                        .and_then(|id| get_vendor_by_clock_identity(id))
-                        .map(|vendor| format!(" ({})", vendor))
-                        .unwrap_or_default(),
-                    Style::default().fg(theme.vendor_text),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Domain: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.domain_number.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Last Seen: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    format!("{:.1}s ago", host.time_since_last_seen().as_secs_f64()),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("UTC Offset: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.format_utc_offset(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "Announce Timestamp: ",
-                    Style::default().fg(theme.text_secondary),
-                ),
-                Span::styled(
-                    host.format_announce_timestamp(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "Sync Timestamp: ",
-                    Style::default().fg(theme.text_secondary),
-                ),
-                Span::styled(
-                    host.format_sync_timestamp(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "Follow-Up Timestamp: ",
-                    Style::default().fg(theme.text_secondary),
-                ),
-                Span::styled(
-                    host.format_followup_timestamp(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
+            create_aligned_field_with_vendor(
+                "Clock Identity: ",
+                host.clock_identity.clone(),
+                host.get_vendor_name()
+                    .map(|vendor| format!(" ({})", vendor))
+                    .unwrap_or_default(),
+                LABEL_WIDTH,
+                theme,
+                theme.text_primary,
+            ),
+            create_aligned_field(
+                "IP Address: ",
+                host.ip_address.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field("Port: ", host.port.to_string(), LABEL_WIDTH, theme),
+            create_aligned_field_with_vendor(
+                "State: ",
+                host.state.to_string(),
+                String::new(),
+                LABEL_WIDTH,
+                theme,
+                theme.get_state_color(&host.state),
+            ),
+            create_aligned_field(
+                "Domain: ",
+                host.domain_number.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field("Priority: ", host.priority1.to_string(), LABEL_WIDTH, theme),
+            create_aligned_field(
+                "Clock Class: ",
+                host.clock_class.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field(
+                "Accuracy: ",
+                format!("0x{:02X}", host.clock_accuracy),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field_with_vendor(
+                "Selected Leader: ",
+                host.selected_leader_id
+                    .as_deref()
+                    .unwrap_or("None")
+                    .to_string(),
+                host.selected_leader_id
+                    .as_deref()
+                    .and_then(|id| get_vendor_by_clock_identity(id))
+                    .map(|vendor| format!(" ({})", vendor))
+                    .unwrap_or_default(),
+                LABEL_WIDTH,
+                theme,
+                theme.get_confidence_color(host.selected_leader_confidence),
+            ),
+            create_aligned_field(
+                "Last Seen: ",
+                format!("{:.1}s ago", host.time_since_last_seen().as_secs_f64()),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field("UTC Offset: ", host.format_utc_offset(), LABEL_WIDTH, theme),
+            create_aligned_field(
+                "Announce Timestamp: ",
+                host.format_announce_timestamp(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field(
+                "Sync Timestamp: ",
+                host.format_sync_timestamp(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field(
+                "Follow-Up Timestamp: ",
+                host.format_followup_timestamp(),
+                LABEL_WIDTH,
+                theme,
+            ),
             Line::from(""),
             Line::from(vec![Span::styled(
                 "Message Counts:",
@@ -499,34 +482,25 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                     .fg(theme.text_accent)
                     .add_modifier(Modifier::BOLD),
             )]),
-            Line::from(vec![
-                Span::styled("  Announce: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.announce_count.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("  Sync: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.sync_count.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("  Delay Req: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.delay_req_count.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("  Delay Resp: ", Style::default().fg(theme.text_secondary)),
-                Span::styled(
-                    host.delay_resp_count.to_string(),
-                    Style::default().fg(theme.text_primary),
-                ),
-            ]),
+            create_aligned_field(
+                "  Announce: ",
+                host.announce_count.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field("  Sync: ", host.sync_count.to_string(), LABEL_WIDTH, theme),
+            create_aligned_field(
+                "  Delay Req: ",
+                host.delay_req_count.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field(
+                "  Delay Resp: ",
+                host.delay_resp_count.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
         ]
     } else {
         vec![
