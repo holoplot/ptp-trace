@@ -95,15 +95,25 @@ jobs:
     - name: Display structure of downloaded files
       run: ls -la artifacts/
 
+    - name: Create ZIP archives
+      run: |
+        cd artifacts
+        zip -r ptp-trace-linux-x86_64.zip ptp-trace-linux-x86_64/
+        zip -r ptp-trace-linux-aarch64.zip ptp-trace-linux-aarch64/
+        zip -r ptp-trace-windows-x86_64.zip ptp-trace-windows-x86_64.exe/
+        zip -r ptp-trace-macos-x86_64.zip ptp-trace-macos-x86_64/
+        zip -r ptp-trace-macos-aarch64.zip ptp-trace-macos-aarch64/
+        ls -la *.zip
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          artifacts/ptp-trace-linux-x86_64/ptp-trace
-          artifacts/ptp-trace-linux-aarch64/ptp-trace
-          artifacts/ptp-trace-windows-x86_64.exe/ptp-trace.exe
-          artifacts/ptp-trace-macos-x86_64/ptp-trace
-          artifacts/ptp-trace-macos-aarch64/ptp-trace
+          artifacts/ptp-trace-linux-x86_64.zip
+          artifacts/ptp-trace-linux-aarch64.zip
+          artifacts/ptp-trace-windows-x86_64.zip
+          artifacts/ptp-trace-macos-x86_64.zip
+          artifacts/ptp-trace-macos-aarch64.zip
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
