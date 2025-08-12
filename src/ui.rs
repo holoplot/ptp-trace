@@ -60,7 +60,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!(" v{}", version::get_version()),
+                version::get_version(),
                 Style::default()
                     .fg(theme.text_accent)
                     .add_modifier(Modifier::BOLD),

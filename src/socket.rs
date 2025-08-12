@@ -1,7 +1,5 @@
 use anyhow::Result;
 use socket2::{Domain, Protocol, Socket, Type};
-use std::sync::mpsc;
-use std::thread;
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
