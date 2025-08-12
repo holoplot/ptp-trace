@@ -337,42 +337,44 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
     let leader_count = app.ptp_tracker.get_leader_count();
     let follower_count = app.ptp_tracker.get_follower_count();
 
+    // Define the width for label alignment in statistics
+    const STATS_LABEL_WIDTH: usize = 13; // Width for "Total Hosts: "
+
     let stats_text = vec![
-        Line::from(vec![
-            Span::styled("Total Hosts: ", Style::default().fg(theme.text_secondary)),
-            Span::styled(
-                total_hosts.to_string(),
-                Style::default().fg(theme.text_primary),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("Leaders: ", Style::default().fg(theme.text_secondary)),
-            Span::styled(
-                leader_count.to_string(),
-                Style::default().fg(theme.state_leader),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("Followers: ", Style::default().fg(theme.text_secondary)),
-            Span::styled(
-                follower_count.to_string(),
-                Style::default().fg(theme.state_follower),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("Other: ", Style::default().fg(theme.text_secondary)),
-            Span::styled(
-                (total_hosts - leader_count - follower_count).to_string(),
-                Style::default().fg(theme.text_primary),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("Last packet: ", Style::default().fg(theme.text_secondary)),
-            Span::styled(
-                format!("{}s ago", app.ptp_tracker.get_last_packet_age().as_secs()),
-                Style::default().fg(theme.text_primary),
-            ),
-        ]),
+        create_aligned_field(
+            "Total Hosts: ",
+            total_hosts.to_string(),
+            STATS_LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field_with_vendor(
+            "Leaders: ",
+            leader_count.to_string(),
+            String::new(),
+            STATS_LABEL_WIDTH,
+            theme,
+            theme.state_leader,
+        ),
+        create_aligned_field_with_vendor(
+            "Followers: ",
+            follower_count.to_string(),
+            String::new(),
+            STATS_LABEL_WIDTH,
+            theme,
+            theme.state_follower,
+        ),
+        create_aligned_field(
+            "Other: ",
+            (total_hosts - leader_count - follower_count).to_string(),
+            STATS_LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "Last packet: ",
+            format!("{}s ago", app.ptp_tracker.get_last_packet_age().as_secs()),
+            STATS_LABEL_WIDTH,
+            theme,
+        ),
     ];
 
     let paragraph = Paragraph::new(stats_text)
