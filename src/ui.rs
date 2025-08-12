@@ -60,7 +60,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                version::get_version(),
+                format!(" {}", version::get_version()),
                 Style::default()
                     .fg(theme.text_accent)
                     .add_modifier(Modifier::BOLD),
@@ -464,11 +464,31 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             ]),
             Line::from(vec![
                 Span::styled(
-                    "Origin Timestamp: ",
+                    "Announce Timestamp: ",
                     Style::default().fg(theme.text_secondary),
                 ),
                 Span::styled(
-                    host.format_origin_timestamp(),
+                    host.format_announce_timestamp(),
+                    Style::default().fg(theme.text_primary),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "Sync Timestamp: ",
+                    Style::default().fg(theme.text_secondary),
+                ),
+                Span::styled(
+                    host.format_sync_timestamp(),
+                    Style::default().fg(theme.text_primary),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "Follow-Up Timestamp: ",
+                    Style::default().fg(theme.text_secondary),
+                ),
+                Span::styled(
+                    host.format_followup_timestamp(),
                     Style::default().fg(theme.text_primary),
                 ),
             ]),

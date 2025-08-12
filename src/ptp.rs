@@ -42,6 +42,10 @@ pub struct PtpHost {
     pub last_sync_timestamp: Option<Instant>,
     pub current_utc_offset: Option<i16>,
     pub last_origin_timestamp: Option<[u8; 10]>,
+    pub timestamp_source: Option<String>,
+    pub announce_origin_timestamp: Option<[u8; 10]>,
+    pub sync_origin_timestamp: Option<[u8; 10]>,
+    pub followup_origin_timestamp: Option<[u8; 10]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -142,6 +146,16 @@ pub struct AnnounceMessage {
     pub time_source: u8,
 }
 
+pub struct SyncMessage {
+    pub header: PtpHeader,
+    pub origin_timestamp: [u8; 10],
+}
+
+pub struct FollowUpMessage {
+    pub header: PtpHeader,
+    pub precise_origin_timestamp: [u8; 10],
+}
+
 impl PtpHost {
     pub fn new(clock_identity: String, ip_address: IpAddr, port: u16) -> Self {
         let now = Instant::now();
@@ -177,6 +191,10 @@ impl PtpHost {
             last_sync_timestamp: None,
             current_utc_offset: None,
             last_origin_timestamp: None,
+            timestamp_source: None,
+            announce_origin_timestamp: None,
+            sync_origin_timestamp: None,
+            followup_origin_timestamp: None,
         }
     }
 
@@ -283,44 +301,95 @@ impl PtpHost {
         }
 
         self.announce_count += 1;
+        self.announce_origin_timestamp = Some(announce.origin_timestamp);
+        self.last_origin_timestamp = Some(announce.origin_timestamp);
+        self.timestamp_source = Some("Announce".to_string());
     }
 
-    /// Format the PTP origin timestamp as a human-readable string
-    pub fn format_origin_timestamp(&self) -> String {
-        match &self.last_origin_timestamp {
-            Some(timestamp) => {
-                // PTP timestamp is 10 bytes: 6 bytes seconds + 4 bytes nanoseconds
-                let seconds = u64::from_be_bytes([
-                    0,
-                    0,
-                    timestamp[0],
-                    timestamp[1],
-                    timestamp[2],
-                    timestamp[3],
-                    timestamp[4],
-                    timestamp[5],
-                ]);
-                let nanoseconds =
-                    u32::from_be_bytes([timestamp[6], timestamp[7], timestamp[8], timestamp[9]]);
+    /// Format a PTP timestamp as YYYY:MM:DD:HH:MM:SS:nanos
+    fn format_ptp_timestamp(timestamp: &[u8; 10]) -> String {
+        use chrono::{DateTime, Datelike, Timelike};
 
-                // PTP epoch starts at January 1, 1900 00:00:00 UTC
-                // Unix epoch starts at January 1, 1970 00:00:00 UTC
-                // Difference is 70 years = 2,208,988,800 seconds
-                const PTP_TO_UNIX_EPOCH_OFFSET: u64 = 2_208_988_800;
+        // PTP timestamp is 10 bytes: 6 bytes seconds + 4 bytes nanoseconds
+        let seconds = u64::from_be_bytes([
+            0,
+            0,
+            timestamp[0],
+            timestamp[1],
+            timestamp[2],
+            timestamp[3],
+            timestamp[4],
+            timestamp[5],
+        ]);
+        let nanoseconds =
+            u32::from_be_bytes([timestamp[6], timestamp[7], timestamp[8], timestamp[9]]);
 
-                if seconds >= PTP_TO_UNIX_EPOCH_OFFSET {
-                    let unix_seconds = seconds - PTP_TO_UNIX_EPOCH_OFFSET;
-                    // Format as readable datetime if it's a reasonable Unix timestamp
-                    if unix_seconds < 4_000_000_000 {
-                        // Reasonable timestamp range (before year 2096)
-                        format!("{}.{:06}s", unix_seconds, nanoseconds / 1000)
-                    } else {
-                        format!("{}.{:06}s", unix_seconds, nanoseconds / 1000)
-                    }
+        // PTP epoch: 1970-01-01 00:00:00 TAI (International Atomic Time)
+        // Unix epoch: 1970-01-01 00:00:00 UTC (Coordinated Universal Time)
+        //
+        // TAI does not have leap seconds, UTC does
+        // Relationship: UTC = TAI - (leap seconds offset)
+        //
+        // Current leap seconds offset (as of 2024): 37 seconds
+        // This means TAI is 37 seconds ahead of UTC
+        //
+        // Note: This offset changes when leap seconds are added to UTC
+        // Historical leap seconds:
+        // - 1972-06-30: 1 second
+        // - 1972-12-31: 1 second
+        // - ... (many more)
+        // - 2016-12-31: 1 second (total: 37 seconds as of 2024)
+
+        const LEAP_SECONDS_OFFSET: u64 = 37; // TAI - UTC offset as of 2024
+
+        // PTP timestamp is in TAI seconds since 1970-01-01
+        // Convert to UTC seconds for display
+        if seconds >= LEAP_SECONDS_OFFSET {
+            let utc_seconds = seconds - LEAP_SECONDS_OFFSET;
+            if utc_seconds < 4_000_000_000 {
+                // Use chrono to convert UTC timestamp to datetime
+                if let Some(dt) = DateTime::from_timestamp(utc_seconds as i64, nanoseconds) {
+                    format!(
+                        "{}-{:02}-{:02} {:02}:{:02}:{:02}.{:09}",
+                        dt.year(),
+                        dt.month(),
+                        dt.day(),
+                        dt.hour(),
+                        dt.minute(),
+                        dt.second(),
+                        nanoseconds
+                    )
                 } else {
-                    format!("PTP:{}.{:06}s", seconds, nanoseconds / 1000)
+                    format!("UTC: {}.{:09}", utc_seconds, nanoseconds)
                 }
+            } else {
+                format!("UTC: {}.{:09}", utc_seconds, nanoseconds)
             }
+        } else {
+            format!("TAI: {}.{:09}", seconds, nanoseconds)
+        }
+    }
+
+    /// Format the announce origin timestamp
+    pub fn format_announce_timestamp(&self) -> String {
+        match &self.announce_origin_timestamp {
+            Some(timestamp) => Self::format_ptp_timestamp(timestamp),
+            None => "N/A".to_string(),
+        }
+    }
+
+    /// Format the sync origin timestamp
+    pub fn format_sync_timestamp(&self) -> String {
+        match &self.sync_origin_timestamp {
+            Some(timestamp) => Self::format_ptp_timestamp(timestamp),
+            None => "N/A".to_string(),
+        }
+    }
+
+    /// Format the follow-up origin timestamp
+    pub fn format_followup_timestamp(&self) -> String {
+        match &self.followup_origin_timestamp {
+            Some(timestamp) => Self::format_ptp_timestamp(timestamp),
             None => "N/A".to_string(),
         }
     }
@@ -397,6 +466,34 @@ mod tests {
 
         // Test short format
         assert_eq!(get_vendor_by_clock_identity("00:00"), None);
+    }
+
+    #[test]
+    fn test_ptp_timestamp_formatting() {
+        // Test a known timestamp: January 1, 2024 00:00:00 UTC
+        // UTC timestamp: 1704067200 seconds since Unix epoch
+        // PTP uses TAI: TAI = UTC + leap_seconds_offset
+        // TAI timestamp: 1704067200 + 37 = 1704067237 seconds since PTP epoch (1970 TAI)
+        let mut timestamp = [0u8; 10];
+
+        // Set seconds (big-endian, 6 bytes) - this is TAI time
+        let ptp_seconds: u64 = 1704067237;
+        timestamp[0] = ((ptp_seconds >> 40) & 0xff) as u8;
+        timestamp[1] = ((ptp_seconds >> 32) & 0xff) as u8;
+        timestamp[2] = ((ptp_seconds >> 24) & 0xff) as u8;
+        timestamp[3] = ((ptp_seconds >> 16) & 0xff) as u8;
+        timestamp[4] = ((ptp_seconds >> 8) & 0xff) as u8;
+        timestamp[5] = (ptp_seconds & 0xff) as u8;
+
+        // Set nanoseconds (big-endian, 4 bytes) - 123456789 nanoseconds
+        let nanos: u32 = 123456789;
+        timestamp[6] = ((nanos >> 24) & 0xff) as u8;
+        timestamp[7] = ((nanos >> 16) & 0xff) as u8;
+        timestamp[8] = ((nanos >> 8) & 0xff) as u8;
+        timestamp[9] = (nanos & 0xff) as u8;
+
+        let formatted = PtpHost::format_ptp_timestamp(&timestamp);
+        assert_eq!(formatted, "2024-01-01 00:00:00.123456789");
     }
 }
 
@@ -572,9 +669,21 @@ impl PtpTracker {
             log_message_interval: header.log_message_interval,
         };
 
-        // Parse announce message first if needed to avoid borrowing conflicts
+        // Parse messages first if needed to avoid borrowing conflicts
         let announce_msg = if header.message_type == PtpMessageType::Announce {
             self.parse_announce_message(data).ok()
+        } else {
+            None
+        };
+
+        let sync_msg = if header.message_type == PtpMessageType::Sync {
+            self.parse_sync_message(data).ok()
+        } else {
+            None
+        };
+
+        let followup_msg = if header.message_type == PtpMessageType::FollowUp {
+            self.parse_follow_up_message(data).ok()
         } else {
             None
         };
@@ -605,6 +714,13 @@ impl PtpTracker {
             PtpMessageType::Sync => {
                 host.sync_count += 1;
                 host.last_sync_timestamp = Some(std::time::Instant::now());
+
+                // Extract origin timestamp from Sync message
+                if let Some(sync_msg) = sync_msg {
+                    host.sync_origin_timestamp = Some(sync_msg.origin_timestamp);
+                    host.last_origin_timestamp = Some(sync_msg.origin_timestamp);
+                    host.timestamp_source = Some("Sync".to_string());
+                }
 
                 // Record this as a recent sync sender for this domain
                 let domain_senders = self
@@ -679,6 +795,13 @@ impl PtpTracker {
                 }
             }
             PtpMessageType::FollowUp => {
+                // Extract precise origin timestamp from Follow-Up message
+                if let Some(followup_msg) = followup_msg {
+                    host.followup_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
+                    host.last_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
+                    host.timestamp_source = Some("Follow-Up".to_string());
+                }
+
                 // Record this as a recent sync sender for this domain (follow-up correlates with sync)
                 let domain_senders = self
                     .recent_sync_senders
@@ -797,6 +920,54 @@ impl PtpTracker {
             grandmaster_identity,
             steps_removed,
             time_source,
+        })
+    }
+
+    fn parse_sync_message(&self, data: &[u8]) -> Result<SyncMessage> {
+        if data.len() < 44 {
+            // 34 (header) + 10 (origin timestamp) = 44 minimum
+            return Err(anyhow::anyhow!("Packet too short for Sync message"));
+        }
+
+        let header = self.parse_ptp_header(data)?;
+
+        // Parse sync-specific fields starting at byte 34
+        let sync_data = &data[34..];
+
+        if sync_data.len() < 10 {
+            return Err(anyhow::anyhow!("Sync data too short"));
+        }
+
+        let mut origin_timestamp = [0u8; 10];
+        origin_timestamp.copy_from_slice(&sync_data[0..10]);
+
+        Ok(SyncMessage {
+            header,
+            origin_timestamp,
+        })
+    }
+
+    fn parse_follow_up_message(&self, data: &[u8]) -> Result<FollowUpMessage> {
+        if data.len() < 44 {
+            // 34 (header) + 10 (precise origin timestamp) = 44 minimum
+            return Err(anyhow::anyhow!("Packet too short for Follow-Up message"));
+        }
+
+        let header = self.parse_ptp_header(data)?;
+
+        // Parse follow-up specific fields starting at byte 34
+        let followup_data = &data[34..];
+
+        if followup_data.len() < 10 {
+            return Err(anyhow::anyhow!("Follow-Up data too short"));
+        }
+
+        let mut precise_origin_timestamp = [0u8; 10];
+        precise_origin_timestamp.copy_from_slice(&followup_data[0..10]);
+
+        Ok(FollowUpMessage {
+            header,
+            precise_origin_timestamp,
         })
     }
 
