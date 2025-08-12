@@ -394,6 +394,67 @@ impl PtpHost {
         }
     }
 
+    /// Resolve clock class to human-readable description
+    pub fn format_clock_class(&self) -> String {
+        let description = match self.clock_class {
+            0..=5 => "Reserved",
+            6 => "Primary reference (GPS, atomic clock, etc.)",
+            7 => "Primary reference (degraded)",
+            8..=12 => "Reserved",
+            13 => "Application specific",
+            14 => "Application specific (degraded)",
+            15..=51 => "Reserved",
+            52 => "Class 7 (degraded A)",
+            53..=57 => "Reserved",
+            58 => "Class 14 (degraded A)",
+            59..=67 => "Reserved",
+            68..=122 => "Alternate PTP profile",
+            123..=132 => "Reserved",
+            133..=170 => "Alternate PTP profile",
+            171..=186 => "Reserved",
+            187 => "Class 7 (degraded B)",
+            188..=192 => "Reserved",
+            193 => "Class 14 (degraded B)",
+            194..=215 => "Reserved",
+            216..=232 => "Alternate PTP profile",
+            233..=247 => "Reserved",
+            248 => "Default, free-running",
+            249..=254 => "Reserved",
+            255 => "Follower-only",
+        };
+        format!("{} ({})", self.clock_class, description)
+    }
+
+    /// Resolve clock accuracy
+    pub fn format_clock_accuracy(&self) -> String {
+        let description = match self.clock_accuracy {
+            0..=0x1f => "Reserved",
+            0x20 => "25 ns",
+            0x21 => "100 ns",
+            0x22 => "250 ns",
+            0x23 => "1 µs",
+            0x24 => "2.5 µs",
+            0x25 => "10 µs",
+            0x26 => "25 µs",
+            0x27 => "100 µs",
+            0x28 => "250 µs",
+            0x29 => "1 ms",
+            0x2a => "2.5 ms",
+            0x2b => "10 ms",
+            0x2c => "25 ms",
+            0x2d => "100 ms",
+            0x2e => "250 ms",
+            0x2f => "1 s",
+            0x30 => "10 s",
+            0x31 => "> 10 s",
+            0x32..=0x7f => "Reserved",
+            0x80..=0xfd => "Alternate PTP profile",
+            0xfe => "Unknown",
+            0xff => "Reserved",
+        };
+        format!("{} ({})", self.clock_accuracy, description)
+    }
+
     /// Format the current UTC offset as a human-readable string
     pub fn format_utc_offset(&self) -> String {
         match self.current_utc_offset {
@@ -494,6 +555,59 @@ mod tests {
 
         let formatted = PtpHost::format_ptp_timestamp(&timestamp);
         assert_eq!(formatted, "2024-01-01 00:00:00.123456789");
+    }
+
+    #[test]
+    fn test_clock_class_formatting() {
+        let mut host = PtpHost::new(
+            "00:11:22:33:44:55:66:77".to_string(),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
+            319,
+        );
+
+        // Test common clock class values
+        host.clock_class = 6;
+        assert_eq!(
+            host.format_clock_class(),
+            "6 (Primary reference (GPS, atomic clock, etc.))"
+        );
+
+        host.clock_class = 7;
+        assert_eq!(
+            host.format_clock_class(),
+            "7 (Primary reference (degraded))"
+        );
+
+        host.clock_class = 248;
+        assert_eq!(host.format_clock_class(), "248 (Default, free-running)");
+
+        host.clock_class = 255;
+        assert_eq!(host.format_clock_class(), "255 (Follower-only)");
+    }
+
+    #[test]
+    fn test_priority_and_clock_class_fields() {
+        let mut host = PtpHost::new(
+            "00:11:22:33:44:55:66:77".to_string(),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
+            319,
+        );
+
+        // Test default values
+        assert_eq!(host.priority1, 128);
+        assert_eq!(host.clock_class, 248);
+
+        // Test setting custom values
+        host.priority1 = 64;
+        host.clock_class = 6;
+        assert_eq!(host.priority1, 64);
+        assert_eq!(host.clock_class, 6);
+
+        // Test another set of values
+        host.priority1 = 255;
+        host.clock_class = 255;
+        assert_eq!(host.priority1, 255);
+        assert_eq!(host.clock_class, 255);
     }
 }
 

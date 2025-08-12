@@ -425,13 +425,13 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             create_aligned_field("Priority: ", host.priority1.to_string(), LABEL_WIDTH, theme),
             create_aligned_field(
                 "Clock Class: ",
-                host.clock_class.to_string(),
+                host.format_clock_class(),
                 LABEL_WIDTH,
                 theme,
             ),
             create_aligned_field(
                 "Accuracy: ",
-                format!("0x{:02X}", host.clock_accuracy),
+                host.format_clock_accuracy(),
                 LABEL_WIDTH,
                 theme,
             ),
