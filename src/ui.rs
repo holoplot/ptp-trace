@@ -270,7 +270,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     };
     let title = if is_focused {
         format!(
-            "PTP Hosts [FOCUSED] - Sort: {}{} (s to cycle, S to reverse)",
+            "PTP Hosts - Sort: {}{} (s to cycle, S to reverse)",
             sort_column.display_name(),
             sort_direction
         )
@@ -688,7 +688,6 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     let packets = app.get_packet_history();
     let _scroll_offset = app.get_packet_scroll_offset();
     let total_packets = packets.len();
-    let is_focused = false; // Packets are non-interactive now
 
     // Calculate how many packets we can display (non-interactive view)
     let content_height = area.height.saturating_sub(2) as usize; // Subtract borders
@@ -725,11 +724,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(if is_focused {
-            Style::default().fg(theme.border_focused)
-        } else {
-            Style::default().fg(theme.border_normal)
-        })
+        .border_style(Style::default().fg(theme.border_normal))
         .style(Style::default().bg(theme.background));
 
     if packets.is_empty() {
