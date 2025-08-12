@@ -33,6 +33,7 @@ pub struct PtpHost {
     pub sync_count: u32,
     pub delay_req_count: u32,
     pub delay_resp_count: u32,
+    pub total_message_count: u32,
 
     pub state: PtpState,
     pub mean_path_delay: Option<Duration>,
@@ -182,6 +183,7 @@ impl PtpHost {
             sync_count: 0,
             delay_req_count: 0,
             delay_resp_count: 0,
+            total_message_count: 0,
 
             state: PtpState::Listening,
             mean_path_delay: None,
@@ -301,6 +303,7 @@ impl PtpHost {
         }
 
         self.announce_count += 1;
+        self.total_message_count += 1;
         self.announce_origin_timestamp = Some(announce.origin_timestamp);
         self.last_origin_timestamp = Some(announce.origin_timestamp);
         self.timestamp_source = Some("Announce".to_string());
@@ -596,6 +599,7 @@ mod tests {
         // Test default values
         assert_eq!(host.priority1, 128);
         assert_eq!(host.clock_class, 248);
+        assert_eq!(host.total_message_count, 0);
 
         // Test setting custom values
         host.priority1 = 64;
@@ -608,6 +612,12 @@ mod tests {
         host.clock_class = 255;
         assert_eq!(host.priority1, 255);
         assert_eq!(host.clock_class, 255);
+
+        // Test message count increment
+        host.total_message_count += 1;
+        assert_eq!(host.total_message_count, 1);
+        host.total_message_count += 5;
+        assert_eq!(host.total_message_count, 6);
     }
 }
 
@@ -821,12 +831,14 @@ impl PtpTracker {
         match header.message_type {
             PtpMessageType::Announce => {
                 host.announce_count += 1;
+                host.total_message_count += 1;
                 if let Some(announce) = announce_msg {
                     host.update_from_announce(&announce);
                 }
             }
             PtpMessageType::Sync => {
                 host.sync_count += 1;
+                host.total_message_count += 1;
                 host.last_sync_timestamp = Some(std::time::Instant::now());
 
                 // Extract origin timestamp from Sync message
@@ -864,6 +876,7 @@ impl PtpTracker {
             }
             PtpMessageType::DelayReq => {
                 host.delay_req_count += 1;
+                host.total_message_count += 1;
                 // Delay requests are sent by followers
                 if host.announce_count == 0 {
                     host.state = PtpState::Follower;
@@ -901,6 +914,7 @@ impl PtpTracker {
             }
             PtpMessageType::DelayResp => {
                 host.delay_resp_count += 1;
+                host.total_message_count += 1;
 
                 // Delay responses are sent by masters/leaders
                 if host.announce_count == 0 {
@@ -909,6 +923,7 @@ impl PtpTracker {
                 }
             }
             PtpMessageType::FollowUp => {
+                host.total_message_count += 1;
                 // Extract precise origin timestamp from Follow-Up message
                 if let Some(followup_msg) = followup_msg {
                     host.followup_origin_timestamp = Some(followup_msg.precise_origin_timestamp);

@@ -32,7 +32,10 @@ pub enum SortColumn {
     IpAddress,
     State,
     Domain,
+    Priority,
+    ClockClass,
     SelectedLeader,
+    MessageCount,
     LastSeen,
 }
 
@@ -42,16 +45,22 @@ impl SortColumn {
             SortColumn::State => SortColumn::ClockIdentity,
             SortColumn::ClockIdentity => SortColumn::IpAddress,
             SortColumn::IpAddress => SortColumn::Domain,
-            SortColumn::Domain => SortColumn::SelectedLeader,
-            SortColumn::SelectedLeader => SortColumn::LastSeen,
+            SortColumn::Domain => SortColumn::Priority,
+            SortColumn::Priority => SortColumn::ClockClass,
+            SortColumn::ClockClass => SortColumn::SelectedLeader,
+            SortColumn::SelectedLeader => SortColumn::MessageCount,
+            SortColumn::MessageCount => SortColumn::LastSeen,
             SortColumn::LastSeen => SortColumn::State,
         }
     }
 
     pub fn previous(&self) -> Self {
         match self {
-            SortColumn::LastSeen => SortColumn::SelectedLeader,
-            SortColumn::SelectedLeader => SortColumn::Domain,
+            SortColumn::LastSeen => SortColumn::MessageCount,
+            SortColumn::MessageCount => SortColumn::SelectedLeader,
+            SortColumn::SelectedLeader => SortColumn::ClockClass,
+            SortColumn::ClockClass => SortColumn::Priority,
+            SortColumn::Priority => SortColumn::Domain,
             SortColumn::Domain => SortColumn::IpAddress,
             SortColumn::IpAddress => SortColumn::ClockIdentity,
             SortColumn::ClockIdentity => SortColumn::State,
@@ -65,7 +74,10 @@ impl SortColumn {
             SortColumn::IpAddress => "IP Address",
             SortColumn::State => "State",
             SortColumn::Domain => "Domain",
+            SortColumn::Priority => "Priority",
+            SortColumn::ClockClass => "Clock Class",
             SortColumn::SelectedLeader => "Selected Leader",
+            SortColumn::MessageCount => "Msg Count",
             SortColumn::LastSeen => "Last Seen",
         }
     }
@@ -512,11 +524,14 @@ impl App {
                     a_state_order.cmp(&b_state_order)
                 }
                 SortColumn::Domain => a.domain_number.cmp(&b.domain_number),
+                SortColumn::Priority => a.priority1.cmp(&b.priority1),
+                SortColumn::ClockClass => a.clock_class.cmp(&b.clock_class),
                 SortColumn::SelectedLeader => {
                     let a_leader = a.selected_leader_id.as_deref().unwrap_or("");
                     let b_leader = b.selected_leader_id.as_deref().unwrap_or("");
                     a_leader.cmp(b_leader)
                 }
+                SortColumn::MessageCount => a.total_message_count.cmp(&b.total_message_count),
                 SortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
             };
 

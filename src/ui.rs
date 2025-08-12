@@ -159,8 +159,11 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         (SortColumn::State, "State"),
         (SortColumn::ClockIdentity, "Clock Identity"),
         (SortColumn::IpAddress, "IP Address"),
-        (SortColumn::Domain, "Domain"),
+        (SortColumn::Domain, "Dom"),
+        (SortColumn::Priority, "Pri"),
+        (SortColumn::ClockClass, "CC"),
         (SortColumn::SelectedLeader, "Selected Leader"),
+        (SortColumn::MessageCount, "Msgs"),
         (SortColumn::LastSeen, "Last Seen"),
     ];
 
@@ -239,7 +242,10 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
             Cell::from(host.clock_identity.clone()),
             Cell::from(host.ip_address.to_string()),
             Cell::from(host.domain_number.to_string()),
+            Cell::from(host.priority1.to_string()),
+            Cell::from(host.clock_class.to_string()),
             selected_leader_cell,
+            Cell::from(host.total_message_count.to_string()),
             Cell::from(last_seen_str),
         ])
         .style(style)
@@ -249,8 +255,11 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(5),  // State
         Constraint::Min(23),    // Clock Identity
         Constraint::Length(15), // IP Address
-        Constraint::Length(6),  // Domain
+        Constraint::Length(3),  // Domain
+        Constraint::Length(3),  // Priority
+        Constraint::Length(3),  // Clock Class
         Constraint::Length(25), // Selected Leader
+        Constraint::Length(5),  // Message Count
         Constraint::Length(10), // Last Seen
     ];
 
