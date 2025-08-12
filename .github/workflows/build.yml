@@ -26,6 +26,10 @@ jobs:
             target: aarch64-unknown-linux-gnu
             artifact_name: ptp-trace
             asset_name: ptp-trace-linux-aarch64
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            artifact_name: ptp-trace
+            asset_name: ptp-trace-linux-armv7
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: ptp-trace.exe
@@ -56,10 +60,16 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gcc-aarch64-linux-gnu
 
+    - name: Install cross-compilation dependencies (Linux ARM32)
+      if: matrix.target == 'armv7-unknown-linux-gnueabihf'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-linux-gnueabihf
+
     - name: Build
       uses: actions-rs/cargo@v1
       with:
-        use-cross: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        use-cross: ${{ matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'armv7-unknown-linux-gnueabihf' }}
         command: build
         args: --release --target ${{ matrix.target }}
 
@@ -68,6 +78,8 @@ jobs:
       run: |
         if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
           aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+        elif [[ "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]]; then
+          arm-linux-gnueabihf-strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
         else
           strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
         fi
@@ -100,6 +112,7 @@ jobs:
         cd artifacts
         zip -r ptp-trace-linux-x86_64.zip ptp-trace-linux-x86_64/
         zip -r ptp-trace-linux-aarch64.zip ptp-trace-linux-aarch64/
+        zip -r ptp-trace-linux-armv7.zip ptp-trace-linux-armv7/
         zip -r ptp-trace-windows-x86_64.zip ptp-trace-windows-x86_64.exe/
         zip -r ptp-trace-macos-x86_64.zip ptp-trace-macos-x86_64/
         zip -r ptp-trace-macos-aarch64.zip ptp-trace-macos-aarch64/
@@ -111,6 +124,7 @@ jobs:
         files: |
           artifacts/ptp-trace-linux-x86_64.zip
           artifacts/ptp-trace-linux-aarch64.zip
+          artifacts/ptp-trace-linux-armv7.zip
           artifacts/ptp-trace-windows-x86_64.zip
           artifacts/ptp-trace-macos-x86_64.zip
           artifacts/ptp-trace-macos-aarch64.zip
