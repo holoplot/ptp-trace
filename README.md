@@ -101,7 +101,7 @@ cargo build --release
 ### 🎬 **Actions**
 - `r` - 🔄 Refresh/rescan network
 - `c` - 🗑️ Clear hosts and packet history
-- `p` - ⏸️ Toggle pause mode
+- `p` - ⏸️ Toggle pause mode (stops network parsing, shows "PAUSED" in header)
 - `e` - 📊 Toggle expanded packet history
 - `d` - 🐛 Toggle debug mode
 
