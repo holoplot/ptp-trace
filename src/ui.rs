@@ -437,6 +437,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
 
         details_text.extend(vec![
             create_aligned_field("Port: ", host.port.to_string(), LABEL_WIDTH, theme),
+            create_aligned_field("Version: ", host.get_version_string(), LABEL_WIDTH, theme),
             create_aligned_field_with_vendor(
                 "State: ",
                 host.state.to_string(),
@@ -486,6 +487,12 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 theme,
             ),
             create_aligned_field("UTC Offset: ", host.format_utc_offset(), LABEL_WIDTH, theme),
+            create_aligned_field(
+                "Correction Field: ",
+                host.get_correction_field_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
             create_aligned_field(
                 "Announce Timestamp: ",
                 host.format_announce_timestamp(),
@@ -766,12 +773,14 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from("Source IP"),
         Cell::from("Port"),
         Cell::from("Interface"),
+        Cell::from("Version"),
         Cell::from("Message Type"),
         Cell::from("Length"),
         Cell::from("Clock Identity"),
         Cell::from("Domain"),
         Cell::from("Seq"),
         Cell::from("Flags"),
+        Cell::from("Correction"),
         Cell::from("Log Interval"),
     ])
     .style(
@@ -826,12 +835,14 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(packet.source_ip.clone()),
                 Cell::from(packet.source_port.to_string()),
                 Cell::from(packet.interface.clone()),
+                Cell::from(format!("v{}", packet.version)),
                 Cell::from(Span::styled(type_str, type_style)),
                 Cell::from(packet.message_length.to_string()),
                 Cell::from(clock_display),
                 Cell::from(packet.domain_number.to_string()),
                 Cell::from(packet.sequence_id.to_string()),
                 Cell::from(format!("{:02x}{:02x}", packet.flags[0], packet.flags[1])),
+                Cell::from(packet.correction_field.to_string()),
                 Cell::from(packet.log_message_interval.to_string()),
             ])
         })
@@ -842,13 +853,15 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(12), // Source IP
         Constraint::Length(5),  // Port
         Constraint::Length(10), // Interface
+        Constraint::Length(4),  // Version
         Constraint::Length(13), // Message Type
         Constraint::Length(6),  // Length
         Constraint::Length(22), // Clock Identity
         Constraint::Length(7),  // Domain
         Constraint::Length(5),  // Sequence
         Constraint::Length(6),  // Flags
-        Constraint::Length(13), // Log Interval
+        Constraint::Length(12), // Correction
+        Constraint::Length(10), // Log Interval
     ];
 
     let table = Table::new(rows, widths)

@@ -89,12 +89,14 @@ pub struct PacketInfo {
     pub source_ip: String,
     pub source_port: u16,
     pub interface: String,
+    pub version: u8,
     pub message_type: PtpMessageType,
     pub message_length: u16,
     pub clock_identity: String,
     pub domain_number: u8,
     pub sequence_id: u16,
     pub flags: [u8; 2],
+    pub correction_field: i64,
     pub log_message_interval: i8,
 }
 
@@ -311,12 +313,14 @@ impl App {
                 source_ip: packet.source_ip.to_string(),
                 source_port: packet.source_port,
                 interface: packet.interface,
+                version: packet.version,
                 message_type: packet.message_type,
                 message_length: packet.message_length,
                 clock_identity: packet.clock_identity,
                 domain_number: packet.domain_number,
                 sequence_id: packet.sequence_id,
                 flags: packet.flags,
+                correction_field: packet.correction_field,
                 log_message_interval: packet.log_message_interval,
             };
             self.add_packet(packet_info);

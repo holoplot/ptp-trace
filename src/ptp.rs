@@ -36,8 +36,6 @@ pub struct PtpHost {
     pub total_message_count: u32,
 
     pub state: PtpState,
-    pub mean_path_delay: Option<Duration>,
-    pub offset_from_leader: Option<Duration>,
     pub selected_leader_id: Option<String>,
     pub selected_leader_confidence: f32, // 0.0 to 1.0 confidence score
     pub last_sync_timestamp: Option<Instant>,
@@ -47,6 +45,8 @@ pub struct PtpHost {
     pub announce_origin_timestamp: Option<[u8; 10]>,
     pub sync_origin_timestamp: Option<[u8; 10]>,
     pub followup_origin_timestamp: Option<[u8; 10]>,
+    pub last_version: Option<u8>,
+    pub last_correction_field: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -190,8 +190,6 @@ impl PtpHost {
             total_message_count: 0,
 
             state: PtpState::Listening,
-            mean_path_delay: None,
-            offset_from_leader: None,
             selected_leader_id: None,
             selected_leader_confidence: 0.0,
             last_sync_timestamp: None,
@@ -201,6 +199,8 @@ impl PtpHost {
             announce_origin_timestamp: None,
             sync_origin_timestamp: None,
             followup_origin_timestamp: None,
+            last_version: None,
+            last_correction_field: None,
         }
     }
 
@@ -242,6 +242,28 @@ impl PtpHost {
 
     pub fn get_ip_addresses_with_interfaces(&self) -> &HashMap<IpAddr, String> {
         &self.ip_addresses
+    }
+
+    pub fn update_version(&mut self, version: u8) {
+        self.last_version = Some(version);
+    }
+
+    pub fn get_version_string(&self) -> String {
+        match self.last_version {
+            Some(version) => format!("v{}", version),
+            None => "Unknown".to_string(),
+        }
+    }
+
+    pub fn update_correction_field(&mut self, correction_field: i64) {
+        self.last_correction_field = Some(correction_field);
+    }
+
+    pub fn get_correction_field_string(&self) -> String {
+        match self.last_correction_field {
+            Some(correction) => correction.to_string(),
+            None => "Unknown".to_string(),
+        }
     }
 
     pub fn quality_indicator(&self) -> u8 {
@@ -750,6 +772,58 @@ mod tests {
             Some(&"wlan0".to_string())
         );
     }
+
+    #[test]
+    fn test_version_tracking() {
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let mut host = PtpHost::new(
+            "00:11:22:33:44:55:66:77".to_string(),
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+            319,
+            "eth0".to_string(),
+        );
+
+        // Initially should have no version
+        assert_eq!(host.last_version, None);
+        assert_eq!(host.get_version_string(), "Unknown");
+
+        // Update with PTPv2
+        host.update_version(2);
+        assert_eq!(host.last_version, Some(2));
+        assert_eq!(host.get_version_string(), "v2");
+
+        // Update with different version
+        host.update_version(1);
+        assert_eq!(host.last_version, Some(1));
+        assert_eq!(host.get_version_string(), "v1");
+    }
+
+    #[test]
+    fn test_correction_field_tracking() {
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let mut host = PtpHost::new(
+            "00:11:22:33:44:55:66:77".to_string(),
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+            319,
+            "eth0".to_string(),
+        );
+
+        // Initially correction field should be None
+        assert_eq!(host.last_correction_field, None);
+        assert_eq!(host.get_correction_field_string(), "Unknown");
+
+        // Update correction field
+        host.update_correction_field(1500);
+        assert_eq!(host.last_correction_field, Some(1500));
+        assert_eq!(host.get_correction_field_string(), "1500");
+
+        // Update with different correction field
+        host.update_correction_field(-750);
+        assert_eq!(host.last_correction_field, Some(-750));
+        assert_eq!(host.get_correction_field_string(), "-750");
+    }
 }
 
 pub struct PtpTracker {
@@ -769,12 +843,14 @@ pub struct ProcessedPacket {
     pub source_ip: std::net::IpAddr,
     pub source_port: u16,
     pub interface: String,
+    pub version: u8,
     pub message_type: PtpMessageType,
     pub message_length: u16,
     pub clock_identity: String,
     pub domain_number: u8,
     pub sequence_id: u16,
     pub flags: [u8; 2],
+    pub correction_field: i64,
     pub log_message_interval: i8,
 }
 
@@ -915,12 +991,14 @@ impl PtpTracker {
             source_ip: src_addr.ip(),
             source_port: src_port,
             interface,
+            version: header.version,
             message_type: header.message_type,
             message_length: header.message_length,
             clock_identity: clock_id.clone(),
             domain_number: header.domain_number,
             sequence_id: header.sequence_id,
             flags: header.flags,
+            correction_field: header.correction_field,
             log_message_interval: header.log_message_interval,
         };
 
@@ -959,6 +1037,8 @@ impl PtpTracker {
         // Update last seen
         host.update_last_seen();
         host.domain_number = header.domain_number;
+        host.update_version(header.version);
+        host.update_correction_field(header.correction_field);
 
         // Set initial state to listening if still unknown and no announce messages received
         if host.state == PtpState::Unknown && host.announce_count == 0 {
