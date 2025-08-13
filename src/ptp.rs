@@ -256,7 +256,9 @@ impl PtpHost {
     }
 
     pub fn update_correction_field(&mut self, correction_field: i64) {
-        self.last_correction_field = Some(correction_field);
+        if correction_field != 0 {
+            self.last_correction_field = Some(correction_field);
+        }
     }
 
     pub fn get_correction_field_string(&self) -> String {
