@@ -240,10 +240,6 @@ impl PtpHost {
         self.ip_addresses.len()
     }
 
-    pub fn get_ip_addresses_with_interfaces(&self) -> &HashMap<IpAddr, String> {
-        &self.ip_addresses
-    }
-
     pub fn update_version(&mut self, version: u8) {
         self.last_version = Some(version);
     }
@@ -702,77 +698,6 @@ mod tests {
         host.add_ip_address(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1)), "eth2".to_string());
         assert_eq!(host.get_ip_count(), 3);
         assert!(host.has_multiple_ips());
-
-        // Check that interface mapping is stored correctly
-        let ip_map = host.get_ip_addresses_with_interfaces();
-        assert_eq!(
-            ip_map.get(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50))),
-            Some(&"eth1".to_string())
-        );
-        assert_eq!(
-            ip_map.get(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))),
-            Some(&"eth2".to_string())
-        );
-
-        // Verify the initial IP has the correct interface (updated from unknown to eth0)
-        assert_eq!(
-            ip_map.get(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))),
-            Some(&"eth0".to_string())
-        );
-
-        // Test that updating an existing IP with new interface works
-        host.add_ip_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)), "wlan0".to_string());
-        assert_eq!(host.get_ip_count(), 3); // Count should remain the same
-
-        // Get fresh reference after mutation
-        let updated_ip_map = host.get_ip_addresses_with_interfaces();
-        assert_eq!(
-            updated_ip_map.get(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50))),
-            Some(&"wlan0".to_string()) // Interface should be updated
-        );
-    }
-
-    #[test]
-    fn test_ip_display_format() {
-        use std::net::{IpAddr, Ipv4Addr};
-
-        let mut host = PtpHost::new(
-            "00:11:22:33:44:55:66:77".to_string(),
-            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
-            319,
-            "eth0".to_string(),
-        );
-
-        // Single IP should show as "192.168.1.100(eth0)"
-        let ip_map = host.get_ip_addresses_with_interfaces();
-        assert_eq!(ip_map.len(), 1);
-        assert_eq!(
-            ip_map.get(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))),
-            Some(&"eth0".to_string())
-        );
-
-        // Add multiple IPs
-        host.add_ip_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)), "eth1".to_string());
-        host.add_ip_address(
-            IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1)),
-            "wlan0".to_string(),
-        );
-
-        // Should have 3 IP addresses with their respective interfaces
-        let ip_map = host.get_ip_addresses_with_interfaces();
-        assert_eq!(ip_map.len(), 3);
-        assert_eq!(
-            ip_map.get(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))),
-            Some(&"eth0".to_string())
-        );
-        assert_eq!(
-            ip_map.get(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50))),
-            Some(&"eth1".to_string())
-        );
-        assert_eq!(
-            ip_map.get(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))),
-            Some(&"wlan0".to_string())
-        );
     }
 
     #[test]

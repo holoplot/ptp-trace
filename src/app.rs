@@ -494,14 +494,6 @@ impl App {
         }
     }
 
-    fn select_current_host(&mut self) {
-        let hosts = self.ptp_tracker.get_hosts();
-        if let Some(_host) = hosts.get(self.selected_index) {
-            // TODO: Implement detailed host view or actions
-            // Host selected - no action needed for now
-        }
-    }
-
     pub fn get_hosts(&self) -> Vec<&PtpHost> {
         let mut hosts = self.ptp_tracker.get_hosts();
 

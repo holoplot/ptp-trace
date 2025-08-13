@@ -29,11 +29,8 @@ pub const GIT_HASH: &str = "{}";
 
 /// Build timestamp
 pub const BUILD_TIME: &str = "{}";
-
-/// Full version string with git info
-pub const FULL_VERSION: &str = concat!("{}", " (", "{}", ")");
 "#,
-        git_version, git_hash, build_time, git_version, git_hash
+        git_version, git_hash, build_time
     );
 
     fs::write(&dest_path, version_code).unwrap();
