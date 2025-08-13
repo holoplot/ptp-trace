@@ -20,9 +20,11 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 - 🏷️ Host classification by PTP state
 - 📈 Network statistics and quality metrics
 - 🕐 Timing relationship tracking
+- 🌳 Visual hierarchy mapping of leader-follower relationships
 
 ### 📋 **Host Management**
 - 📝 Comprehensive host table with sortable columns
+- 🌳 Hierarchical tree view showing leader-follower relationships
 - 🔢 Multiple sort options (State, IP, Clock Identity, Domain, etc.)
 - 🎯 Selection tracking across operations
 - 📊 Quality indicators and confidence levels
@@ -92,6 +94,7 @@ cargo build --release
 ### 📊 **Table Operations**
 - `s` - 🔄 Cycle sort columns
 - `S` - ↕️ Toggle sort direction
+- `t` - 🌳 Toggle hierarchical tree view
 - Green headers indicate active sort column
 
 ### 🎬 **Actions**
@@ -116,6 +119,7 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 - 🖼️ Complete terminal UI framework
 - 🎮 Application structure and navigation
 - 📊 Host table with sorting and scrolling
+- 🌳 Hierarchical tree view for PTP topology visualization
 - 📦 Packet history with detailed view
 - 🎨 Multiple theme support
 - ⌨️ Comprehensive keyboard controls
@@ -124,6 +128,8 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 ### 🗺️ **Future Roadmap**
 - 📤 **Data export** - JSON, PCAP output formats
 - 🔍 **Advanced filtering** - Search and filter capabilities
+- 📊 **Enhanced analytics** - Statistical analysis of timing data
+- 🔧 **Configuration management** - Save/load application settings
 
 ## 🛠️ Development
 

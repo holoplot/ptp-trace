@@ -150,7 +150,6 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
 
     let theme = &app.theme;
     let is_focused = true; // Hosts are always focused now
-    let hosts = app.get_hosts();
     let selected_index = app.get_selected_index();
     let updated_scroll_offset = app.get_host_scroll_offset();
 
@@ -182,85 +181,193 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
 
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
-    // Apply scrolling - only show visible rows
-    let visible_hosts: Vec<_> = hosts
-        .iter()
-        .skip(updated_scroll_offset)
-        .take(visible_height)
-        .collect();
+    // Get hosts data based on tree view mode
+    let (total_count, rows) = if app.tree_view_enabled {
+        let hierarchical_hosts = app.get_hierarchical_hosts();
+        let total_count = hierarchical_hosts.len();
 
-    let rows = visible_hosts.iter().enumerate().map(|(visible_i, host)| {
-        let actual_i = visible_i + updated_scroll_offset;
-        let state_color = theme.get_state_color(&host.state);
+        // Apply scrolling - only show visible rows
+        let visible_hosts: Vec<_> = hierarchical_hosts
+            .iter()
+            .skip(updated_scroll_offset)
+            .take(visible_height)
+            .collect();
 
-        let time_since_last_seen = host.time_since_last_seen();
-        let last_seen_str = if time_since_last_seen.as_secs() < 60 {
-            format!("{}s", time_since_last_seen.as_secs())
-        } else {
-            format!("{}m", time_since_last_seen.as_secs() / 60)
-        };
+        let rows = visible_hosts.iter().enumerate().map(|(visible_i, h_host)| {
+            let actual_i = visible_i + updated_scroll_offset;
+            let host = h_host.host;
+            let state_color = theme.get_state_color(&host.state);
 
-        let style = if actual_i == selected_index {
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
+            let time_since_last_seen = host.time_since_last_seen();
+            let last_seen_str = if time_since_last_seen.as_secs() < 60 {
+                format!("{}s", time_since_last_seen.as_secs())
+            } else {
+                format!("{}m", time_since_last_seen.as_secs() / 60)
+            };
 
-        let (_selected_leader_display, selected_leader_cell) = host
-            .selected_leader_id
-            .as_ref()
-            .map(|id| {
-                // Add confidence indicator based on relationship quality
-                let (confidence_symbol, confidence_color) = match host.selected_leader_confidence {
-                    conf if conf >= 0.9 => (
-                        " ✓",
-                        theme.get_confidence_color(host.selected_leader_confidence),
-                    ), // High confidence
-                    conf if conf >= 0.7 => (
-                        " ~",
-                        theme.get_confidence_color(host.selected_leader_confidence),
-                    ), // Good confidence
-                    conf if conf >= 0.4 => (
-                        " ?",
-                        theme.get_confidence_color(host.selected_leader_confidence),
-                    ), // Medium confidence
-                    _ => ("", theme.text_primary), // Low/no confidence
+            let style = if actual_i == selected_index {
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            let (_selected_leader_display, selected_leader_cell) = host
+                .selected_leader_id
+                .as_ref()
+                .map(|id| {
+                    // Add confidence indicator based on relationship quality
+                    let (confidence_symbol, confidence_color) =
+                        match host.selected_leader_confidence {
+                            conf if conf >= 0.9 => (
+                                " ✓",
+                                theme.get_confidence_color(host.selected_leader_confidence),
+                            ), // High confidence
+                            conf if conf >= 0.7 => (
+                                " ~",
+                                theme.get_confidence_color(host.selected_leader_confidence),
+                            ), // Good confidence
+                            conf if conf >= 0.4 => (
+                                " ?",
+                                theme.get_confidence_color(host.selected_leader_confidence),
+                            ), // Medium confidence
+                            _ => ("", theme.text_primary), // Low/no confidence
+                        };
+
+                    let cell = Cell::from(Line::from(vec![
+                        Span::styled(id.clone(), Style::default().fg(theme.text_primary)),
+                        Span::styled(confidence_symbol, Style::default().fg(confidence_color)),
+                    ]));
+                    (format!("{}{}", id, confidence_symbol), cell)
+                })
+                .unwrap_or_else(|| ("None".to_string(), Cell::from("None")));
+
+            // Format IP address display with interface info
+            let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
+                if host.has_multiple_ips() {
+                    format!("{} (+{})", primary_ip, host.get_ip_count() - 1)
+                } else {
+                    format!("{}", primary_ip)
+                }
+            } else {
+                "N/A".to_string()
+            };
+
+            // Create hierarchical clock identity with tree indentation
+            let tree_prefix = "`-".repeat(h_host.depth);
+            let clock_identity_display = if h_host.depth > 0 {
+                format!("{}{}", tree_prefix, host.clock_identity)
+            } else {
+                host.clock_identity.clone()
+            };
+
+            Row::new(vec![
+                Cell::from(host.state.to_string()).style(Style::default().fg(state_color)),
+                Cell::from(clock_identity_display),
+                Cell::from(ip_display),
+                Cell::from(host.domain_number.to_string()),
+                Cell::from(host.priority1.to_string()),
+                Cell::from(host.clock_class.to_string()),
+                selected_leader_cell,
+                Cell::from(host.total_message_count.to_string()),
+                Cell::from(last_seen_str),
+            ])
+            .style(style)
+        });
+
+        (total_count, rows.collect())
+    } else {
+        let hosts = app.get_hosts();
+        let total_count = hosts.len();
+
+        // Apply scrolling - only show visible rows
+        let visible_hosts: Vec<_> = hosts
+            .iter()
+            .skip(updated_scroll_offset)
+            .take(visible_height)
+            .collect();
+
+        let rows: Vec<Row> = visible_hosts
+            .iter()
+            .enumerate()
+            .map(|(visible_i, host)| {
+                let actual_i = visible_i + updated_scroll_offset;
+                let state_color = theme.get_state_color(&host.state);
+
+                let time_since_last_seen = host.time_since_last_seen();
+                let last_seen_str = if time_since_last_seen.as_secs() < 60 {
+                    format!("{}s", time_since_last_seen.as_secs())
+                } else {
+                    format!("{}m", time_since_last_seen.as_secs() / 60)
                 };
 
-                let cell = Cell::from(Line::from(vec![
-                    Span::styled(id.clone(), Style::default().fg(theme.text_primary)),
-                    Span::styled(confidence_symbol, Style::default().fg(confidence_color)),
-                ]));
-                (format!("{}{}", id, confidence_symbol), cell)
+                let style = if actual_i == selected_index {
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
+                let (_selected_leader_display, selected_leader_cell) = host
+                    .selected_leader_id
+                    .as_ref()
+                    .map(|id| {
+                        // Add confidence indicator based on relationship quality
+                        let (confidence_symbol, confidence_color) =
+                            match host.selected_leader_confidence {
+                                conf if conf >= 0.9 => (
+                                    " ✓",
+                                    theme.get_confidence_color(host.selected_leader_confidence),
+                                ), // High confidence
+                                conf if conf >= 0.7 => (
+                                    " ~",
+                                    theme.get_confidence_color(host.selected_leader_confidence),
+                                ), // Good confidence
+                                conf if conf >= 0.4 => (
+                                    " ?",
+                                    theme.get_confidence_color(host.selected_leader_confidence),
+                                ), // Medium confidence
+                                _ => ("", theme.text_primary), // Low/no confidence
+                            };
+
+                        let cell = Cell::from(Line::from(vec![
+                            Span::styled(id.clone(), Style::default().fg(theme.text_primary)),
+                            Span::styled(confidence_symbol, Style::default().fg(confidence_color)),
+                        ]));
+                        (format!("{}{}", id, confidence_symbol), cell)
+                    })
+                    .unwrap_or_else(|| ("None".to_string(), Cell::from("None")));
+
+                // Format IP address display with interface info
+                let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
+                    if host.has_multiple_ips() {
+                        format!("{} (+{})", primary_ip, host.get_ip_count() - 1)
+                    } else {
+                        format!("{}", primary_ip)
+                    }
+                } else {
+                    "N/A".to_string()
+                };
+
+                Row::new(vec![
+                    Cell::from(host.state.to_string()).style(Style::default().fg(state_color)),
+                    Cell::from(host.clock_identity.clone()),
+                    Cell::from(ip_display),
+                    Cell::from(host.domain_number.to_string()),
+                    Cell::from(host.priority1.to_string()),
+                    Cell::from(host.clock_class.to_string()),
+                    selected_leader_cell,
+                    Cell::from(host.total_message_count.to_string()),
+                    Cell::from(last_seen_str),
+                ])
+                .style(style)
             })
-            .unwrap_or_else(|| ("None".to_string(), Cell::from("None")));
+            .collect();
 
-        // Format IP address display with interface info
-        let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
-            if host.has_multiple_ips() {
-                format!("{} (+{})", primary_ip, host.get_ip_count() - 1)
-            } else {
-                format!("{}", primary_ip)
-            }
-        } else {
-            "N/A".to_string()
-        };
-
-        Row::new(vec![
-            Cell::from(host.state.to_string()).style(Style::default().fg(state_color)),
-            Cell::from(host.clock_identity.clone()),
-            Cell::from(ip_display),
-            Cell::from(host.domain_number.to_string()),
-            Cell::from(host.priority1.to_string()),
-            Cell::from(host.clock_class.to_string()),
-            selected_leader_cell,
-            Cell::from(host.total_message_count.to_string()),
-            Cell::from(last_seen_str),
-        ])
-        .style(style)
-    });
+        (total_count, rows)
+    };
 
     let widths = [
         Constraint::Length(5),  // State
@@ -279,19 +386,14 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     } else {
         "↓"
     };
-    let title = if is_focused {
-        format!(
-            "PTP Hosts - Sort: {}{} (s to cycle, S to reverse)",
-            sort_column.display_name(),
-            sort_direction
-        )
-    } else {
-        format!(
-            "PTP Hosts - Sort: {}{} (s to cycle, S to reverse)",
-            sort_column.display_name(),
-            sort_direction
-        )
-    };
+
+    let tree_status = if app.tree_view_enabled { " [Tree]" } else { "" };
+    let title = format!(
+        "PTP Hosts{} - Sort: {}{} (s to cycle, S to reverse, t for tree)",
+        tree_status,
+        sort_column.display_name(),
+        sort_direction
+    );
 
     let table = Table::new(rows, widths)
         .header(header)
@@ -313,11 +415,11 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     f.render_widget(table, area);
 
     // Render scrollbar if needed
-    if hosts.len() > visible_height {
+    if total_count > visible_height {
         render_scrollbar(
             f,
             area,
-            hosts.len(),
+            total_count,
             updated_scroll_offset,
             visible_height,
             theme,
@@ -597,6 +699,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from("  s          - Cycle host table sorting"),
         Line::from("  a          - Previous sort column"),
         Line::from("  S          - Reverse sort direction"),
+        Line::from("  t          - Toggle tree view"),
         Line::from("  e          - Toggle expanded packet history"),
         Line::from("  d          - Toggle debug mode"),
         Line::from(""),
