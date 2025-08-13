@@ -191,7 +191,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from(*display_name).style(style)
     });
 
-    let header = Row::new(header_cells).height(1).bottom_margin(1);
+    let header = Row::new(header_cells).height(1);
 
     // Get hosts data based on tree view mode
     let (total_count, rows) = if app.tree_view_enabled {
