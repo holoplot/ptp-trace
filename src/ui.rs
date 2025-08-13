@@ -237,10 +237,21 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
             })
             .unwrap_or_else(|| ("None".to_string(), Cell::from("None")));
 
+        // Format IP address display with interface info
+        let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
+            if host.has_multiple_ips() {
+                format!("{} (+{})", primary_ip, host.get_ip_count() - 1)
+            } else {
+                format!("{}", primary_ip)
+            }
+        } else {
+            "N/A".to_string()
+        };
+
         Row::new(vec![
             Cell::from(host.state.to_string()).style(Style::default().fg(state_color)),
             Cell::from(host.clock_identity.clone()),
-            Cell::from(host.ip_address.to_string()),
+            Cell::from(ip_display),
             Cell::from(host.domain_number.to_string()),
             Cell::from(host.priority1.to_string()),
             Cell::from(host.clock_class.to_string()),
@@ -254,7 +265,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     let widths = [
         Constraint::Length(5),  // State
         Constraint::Min(23),    // Clock Identity
-        Constraint::Length(15), // IP Address
+        Constraint::Length(24), // IP Address
         Constraint::Length(3),  // Domain
         Constraint::Length(3),  // Priority
         Constraint::Length(3),  // Clock Class
@@ -400,7 +411,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
         // Define the width for label alignment
         const LABEL_WIDTH: usize = 22; // Width for "Follow-Up Timestamp: "
 
-        vec![
+        let mut details_text = vec![
             // Host details section
             create_aligned_field_with_vendor(
                 "Clock Identity: ",
@@ -412,12 +423,19 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 theme,
                 theme.text_primary,
             ),
-            create_aligned_field(
+        ];
+
+        // Add IP addresses with interface info - each on its own row with "IP Address:" label
+        for (ip, interface) in host.ip_addresses.iter() {
+            details_text.push(create_aligned_field(
                 "IP Address: ",
-                host.ip_address.to_string(),
+                format!("{} ({})", ip, interface),
                 LABEL_WIDTH,
                 theme,
-            ),
+            ));
+        }
+
+        details_text.extend(vec![
             create_aligned_field("Port: ", host.port.to_string(), LABEL_WIDTH, theme),
             create_aligned_field_with_vendor(
                 "State: ",
@@ -512,7 +530,9 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 LABEL_WIDTH,
                 theme,
             ),
-        ]
+        ]);
+
+        details_text
     } else {
         vec![
             Line::from("No host selected"),

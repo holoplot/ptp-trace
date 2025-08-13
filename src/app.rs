@@ -505,7 +505,17 @@ impl App {
         hosts.sort_by(|a, b| {
             let comparison = match self.sort_column {
                 SortColumn::ClockIdentity => a.clock_identity.cmp(&b.clock_identity),
-                SortColumn::IpAddress => a.ip_address.to_string().cmp(&b.ip_address.to_string()),
+                SortColumn::IpAddress => {
+                    let a_ip = a
+                        .get_primary_ip()
+                        .map(|ip| ip.to_string())
+                        .unwrap_or_default();
+                    let b_ip = b
+                        .get_primary_ip()
+                        .map(|ip| ip.to_string())
+                        .unwrap_or_default();
+                    a_ip.cmp(&b_ip)
+                }
                 SortColumn::State => {
                     let a_state_order = match a.state {
                         PtpState::Leader => 0,

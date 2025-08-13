@@ -12,7 +12,7 @@ const MAX_PACKET_SIZE: usize = 1024;
 #[derive(Debug, Clone)]
 pub struct PtpHost {
     pub clock_identity: String,
-    pub ip_address: IpAddr,
+    pub ip_addresses: HashMap<IpAddr, String>,
     pub port: u16,
     pub domain_number: u8,
     pub priority1: u8,
@@ -158,11 +158,15 @@ pub struct FollowUpMessage {
 }
 
 impl PtpHost {
-    pub fn new(clock_identity: String, ip_address: IpAddr, port: u16) -> Self {
+    pub fn new(clock_identity: String, ip_address: IpAddr, port: u16, interface: String) -> Self {
         let now = Instant::now();
         Self {
             clock_identity,
-            ip_address,
+            ip_addresses: {
+                let mut map = HashMap::new();
+                map.insert(ip_address, interface);
+                map
+            },
             port,
             domain_number: 0,
             priority1: 128,
@@ -218,6 +222,26 @@ impl PtpHost {
 
     pub fn time_since_last_seen(&self) -> Duration {
         Instant::now().duration_since(self.last_seen)
+    }
+
+    pub fn add_ip_address(&mut self, ip: IpAddr, interface: String) {
+        self.ip_addresses.insert(ip, interface);
+    }
+
+    pub fn get_primary_ip(&self) -> Option<&IpAddr> {
+        self.ip_addresses.keys().next()
+    }
+
+    pub fn has_multiple_ips(&self) -> bool {
+        self.ip_addresses.len() > 1
+    }
+
+    pub fn get_ip_count(&self) -> usize {
+        self.ip_addresses.len()
+    }
+
+    pub fn get_ip_addresses_with_interfaces(&self) -> &HashMap<IpAddr, String> {
+        &self.ip_addresses
     }
 
     pub fn quality_indicator(&self) -> u8 {
@@ -566,6 +590,7 @@ mod tests {
             "00:11:22:33:44:55:66:77".to_string(),
             std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
             319,
+            "eth0".to_string(),
         );
 
         // Test common clock class values
@@ -594,6 +619,7 @@ mod tests {
             "00:11:22:33:44:55:66:77".to_string(),
             std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
             319,
+            "eth0".to_string(),
         );
 
         // Test default values
@@ -618,6 +644,111 @@ mod tests {
         assert_eq!(host.total_message_count, 1);
         host.total_message_count += 5;
         assert_eq!(host.total_message_count, 6);
+    }
+
+    #[test]
+    fn test_multiple_ip_addresses() {
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let mut host = PtpHost::new(
+            "00:11:22:33:44:55:66:77".to_string(),
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+            319,
+            "eth0".to_string(),
+        );
+
+        // Initially should have one IP
+        assert_eq!(host.get_ip_count(), 1);
+        assert!(host.get_primary_ip().is_some());
+        assert!(!host.has_multiple_ips());
+
+        // Add a second IP with interface
+        host.add_ip_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)), "eth1".to_string());
+        assert_eq!(host.get_ip_count(), 2);
+        assert!(host.has_multiple_ips());
+
+        // Adding the same IP again should update the interface
+        host.add_ip_address(
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+            "eth0".to_string(),
+        );
+        assert_eq!(host.get_ip_count(), 2);
+
+        // Add a third IP
+        host.add_ip_address(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1)), "eth2".to_string());
+        assert_eq!(host.get_ip_count(), 3);
+        assert!(host.has_multiple_ips());
+
+        // Check that interface mapping is stored correctly
+        let ip_map = host.get_ip_addresses_with_interfaces();
+        assert_eq!(
+            ip_map.get(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50))),
+            Some(&"eth1".to_string())
+        );
+        assert_eq!(
+            ip_map.get(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))),
+            Some(&"eth2".to_string())
+        );
+
+        // Verify the initial IP has the correct interface (updated from unknown to eth0)
+        assert_eq!(
+            ip_map.get(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))),
+            Some(&"eth0".to_string())
+        );
+
+        // Test that updating an existing IP with new interface works
+        host.add_ip_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)), "wlan0".to_string());
+        assert_eq!(host.get_ip_count(), 3); // Count should remain the same
+
+        // Get fresh reference after mutation
+        let updated_ip_map = host.get_ip_addresses_with_interfaces();
+        assert_eq!(
+            updated_ip_map.get(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50))),
+            Some(&"wlan0".to_string()) // Interface should be updated
+        );
+    }
+
+    #[test]
+    fn test_ip_display_format() {
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let mut host = PtpHost::new(
+            "00:11:22:33:44:55:66:77".to_string(),
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+            319,
+            "eth0".to_string(),
+        );
+
+        // Single IP should show as "192.168.1.100(eth0)"
+        let ip_map = host.get_ip_addresses_with_interfaces();
+        assert_eq!(ip_map.len(), 1);
+        assert_eq!(
+            ip_map.get(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))),
+            Some(&"eth0".to_string())
+        );
+
+        // Add multiple IPs
+        host.add_ip_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)), "eth1".to_string());
+        host.add_ip_address(
+            IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1)),
+            "wlan0".to_string(),
+        );
+
+        // Should have 3 IP addresses with their respective interfaces
+        let ip_map = host.get_ip_addresses_with_interfaces();
+        assert_eq!(ip_map.len(), 3);
+        assert_eq!(
+            ip_map.get(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))),
+            Some(&"eth0".to_string())
+        );
+        assert_eq!(
+            ip_map.get(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50))),
+            Some(&"eth1".to_string())
+        );
+        assert_eq!(
+            ip_map.get(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))),
+            Some(&"wlan0".to_string())
+        );
     }
 }
 
@@ -813,10 +944,17 @@ impl PtpTracker {
         };
 
         // Get or create host entry
-        let host = self
-            .hosts
-            .entry(clock_id.clone())
-            .or_insert_with(|| PtpHost::new(clock_id.clone(), src_addr.ip(), src_addr.port()));
+        let host = self.hosts.entry(clock_id.clone()).or_insert_with(|| {
+            PtpHost::new(
+                clock_id.clone(),
+                src_addr.ip(),
+                src_addr.port(),
+                packet_info.interface.clone(),
+            )
+        });
+
+        // Add this IP address if it's not already known for this host
+        host.add_ip_address(src_addr.ip(), packet_info.interface.clone());
 
         // Update last seen
         host.update_last_seen();
