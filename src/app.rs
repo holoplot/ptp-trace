@@ -157,7 +157,7 @@ impl App {
             max_packet_history: 1000,
             packet_history_expanded: false,
             sort_column: SortColumn::ClockIdentity,
-            sort_ascending: false,
+            sort_ascending: true,
             selected_host_id: None,
             tree_view_enabled: false,
             paused: false,
@@ -678,14 +678,8 @@ impl App {
             let comparison = match self.sort_column {
                 SortColumn::ClockIdentity => a.clock_identity.cmp(&b.clock_identity),
                 SortColumn::IpAddress => {
-                    let a_ip = a
-                        .get_primary_ip()
-                        .map(|ip| ip.to_string())
-                        .unwrap_or_default();
-                    let b_ip = b
-                        .get_primary_ip()
-                        .map(|ip| ip.to_string())
-                        .unwrap_or_default();
+                    let a_ip = a.get_primary_ip();
+                    let b_ip = b.get_primary_ip();
                     a_ip.cmp(&b_ip)
                 }
                 SortColumn::State => {
@@ -733,14 +727,8 @@ impl App {
             let comparison = match self.sort_column {
                 SortColumn::ClockIdentity => a.clock_identity.cmp(&b.clock_identity),
                 SortColumn::IpAddress => {
-                    let a_ip = a
-                        .get_primary_ip()
-                        .map(|ip| ip.to_string())
-                        .unwrap_or_default();
-                    let b_ip = b
-                        .get_primary_ip()
-                        .map(|ip| ip.to_string())
-                        .unwrap_or_default();
+                    let a_ip = a.get_primary_ip();
+                    let b_ip = b.get_primary_ip();
                     a_ip.cmp(&b_ip)
                 }
                 SortColumn::State => {
