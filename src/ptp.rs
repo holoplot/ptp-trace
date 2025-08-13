@@ -130,7 +130,7 @@ pub struct PtpHeader {
     pub correction_field: i64,
     pub source_port_identity: [u8; 10],
     pub sequence_id: u16,
-    pub control_field: u8,
+    pub _control_field: u8,
     pub log_message_interval: i8,
 }
 
@@ -1133,7 +1133,7 @@ impl PtpTracker {
         source_port_identity.copy_from_slice(&data[20..30]);
 
         let sequence_id = u16::from_be_bytes([data[30], data[31]]);
-        let control_field = data[32];
+        let _control_field = data[32];
         let log_message_interval = data[33] as i8;
 
         Ok(PtpHeader {
@@ -1145,7 +1145,7 @@ impl PtpTracker {
             correction_field,
             source_port_identity,
             sequence_id,
-            control_field,
+            _control_field,
             log_message_interval,
         })
     }
