@@ -884,15 +884,23 @@ impl PtpTracker {
             return Ok(None); // Packet too small to be valid PTP
         }
 
-        // Check PTP version (should be 2)
-        if (data[1] & 0x0f) != 2 {
-            return Ok(None); // Not PTPv2
+        // Check PTP version (accept both v1 and v2)
+        let version = data[1] & 0x0f;
+        if version != 1 && version != 2 {
+            return Ok(None); // Not PTPv1 or PTPv2
         }
 
-        // Parse PTP header
-        let header = match self.parse_ptp_header(data) {
-            Ok(h) => h,
-            Err(_) => return Ok(None), // Invalid header
+        // Parse PTP header based on version
+        let header = match version {
+            1 => match self.parse_ptp_v1_header(data) {
+                Ok(h) => h,
+                Err(_) => return Ok(None), // Invalid header
+            },
+            2 => match self.parse_ptp_header(data) {
+                Ok(h) => h,
+                Err(_) => return Ok(None), // Invalid header
+            },
+            _ => return Ok(None), // Should not happen due to version check above
         };
 
         // Extract clock identity from source port identity (bytes 20-27)
@@ -931,19 +939,31 @@ impl PtpTracker {
 
         // Parse messages first if needed to avoid borrowing conflicts
         let announce_msg = if header.message_type == PtpMessageType::Announce {
-            self.parse_announce_message(data).ok()
+            match header.version {
+                1 => self.parse_announce_v1_message(data).ok(),
+                2 => self.parse_announce_message(data).ok(),
+                _ => None,
+            }
         } else {
             None
         };
 
         let sync_msg = if header.message_type == PtpMessageType::Sync {
-            self.parse_sync_message(data).ok()
+            match header.version {
+                1 => self.parse_sync_v1_message(data).ok(),
+                2 => self.parse_sync_message(data).ok(),
+                _ => None,
+            }
         } else {
             None
         };
 
         let followup_msg = if header.message_type == PtpMessageType::FollowUp {
-            self.parse_follow_up_message(data).ok()
+            match header.version {
+                1 => None, // PTPv1 doesn't have FollowUp messages
+                2 => self.parse_follow_up_message(data).ok(),
+                _ => None,
+            }
         } else {
             None
         };
@@ -1288,5 +1308,126 @@ impl PtpTracker {
 
     pub fn get_last_packet_age(&self) -> Duration {
         Instant::now().duration_since(self.last_packet)
+    }
+
+    fn parse_ptp_v1_header(&self, data: &[u8]) -> Result<PtpHeader> {
+        if data.len() < 44 {
+            return Err(anyhow::anyhow!("Packet too short for PTPv1 header"));
+        }
+
+        // PTPv1 header format is different from v2
+        let message_type = PtpMessageType::try_from(data[0] & 0x0f)
+            .map_err(|_| anyhow::anyhow!("Unknown PTP message type"))?;
+
+        let version = data[1] & 0x0f;
+        let message_length = u16::from_be_bytes([data[2], data[3]]);
+        let domain_number = data[4];
+
+        // PTPv1 has different flag field position
+        let flags = [data[6], data[7]];
+
+        // PTPv1 doesn't have correction field in the same position, set to 0
+        let correction_field = 0i64;
+
+        // Source port identity in PTPv1 starts at different offset
+        let mut source_port_identity = [0u8; 10];
+        // In PTPv1, clock identity is at bytes 8-13 (6 bytes), we'll pad with zeros
+        source_port_identity[0..6].copy_from_slice(&data[8..14]);
+        // Port number at bytes 14-15
+        source_port_identity[8..10].copy_from_slice(&data[14..16]);
+
+        let sequence_id = u16::from_be_bytes([data[16], data[17]]);
+        let _control_field = data[18];
+
+        // PTPv1 uses different field for message interval
+        let log_message_interval = 0i8; // Default for v1
+
+        Ok(PtpHeader {
+            message_type,
+            version,
+            message_length,
+            domain_number,
+            flags,
+            correction_field,
+            source_port_identity,
+            sequence_id,
+            _control_field,
+            log_message_interval,
+        })
+    }
+
+    fn parse_announce_v1_message(&self, data: &[u8]) -> Result<AnnounceMessage> {
+        if data.len() < 60 {
+            // PTPv1 announce message is shorter than v2
+            return Err(anyhow::anyhow!(
+                "Packet too short for PTPv1 Announce message"
+            ));
+        }
+
+        let header = self.parse_ptp_v1_header(data)?;
+
+        // Parse PTPv1 announce-specific fields starting at byte 44
+        let announce_data = &data[44..];
+
+        if announce_data.len() < 16 {
+            return Err(anyhow::anyhow!("PTPv1 Announce data too short"));
+        }
+
+        // PTPv1 has a simpler announce format
+        let mut origin_timestamp = [0u8; 10];
+        origin_timestamp.copy_from_slice(&announce_data[0..10]);
+
+        let current_utc_offset = 0i16; // Not available in v1
+
+        // PTPv1 priority field
+        let grandmaster_priority_1 = announce_data[10];
+
+        // Simplified clock quality for v1
+        let grandmaster_clock_quality = [0u8; 4];
+
+        let grandmaster_priority_2 = 0u8; // Not used in v1
+
+        // Clock identity in v1 format
+        let mut grandmaster_identity = [0u8; 8];
+        grandmaster_identity[0..6].copy_from_slice(&announce_data[11..17]);
+
+        let steps_removed = 0u16; // Not in v1 format
+        let time_source = 0u8; // Not in v1 format
+
+        Ok(AnnounceMessage {
+            header,
+            origin_timestamp,
+            current_utc_offset,
+            grandmaster_priority_1,
+            grandmaster_clock_quality,
+            grandmaster_priority_2,
+            grandmaster_identity,
+            steps_removed,
+            time_source,
+        })
+    }
+
+    fn parse_sync_v1_message(&self, data: &[u8]) -> Result<SyncMessage> {
+        if data.len() < 54 {
+            // PTPv1 sync message length
+            return Err(anyhow::anyhow!("Packet too short for PTPv1 Sync message"));
+        }
+
+        let header = self.parse_ptp_v1_header(data)?;
+
+        // Parse PTPv1 sync-specific fields starting at byte 44
+        let sync_data = &data[44..];
+
+        if sync_data.len() < 10 {
+            return Err(anyhow::anyhow!("PTPv1 Sync data too short"));
+        }
+
+        let mut origin_timestamp = [0u8; 10];
+        origin_timestamp.copy_from_slice(&sync_data[0..10]);
+
+        Ok(SyncMessage {
+            _header: header,
+            origin_timestamp,
+        })
     }
 }

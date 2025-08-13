@@ -1,6 +1,6 @@
 # 🕰️ PTP Trace
 
-A powerful terminal-based application for monitoring and analyzing PTPv2 (Precision Time Protocol) networks in real-time.
+A powerful terminal-based application for monitoring and analyzing PTP (Precision Time Protocol) networks in real-time. Supports both PTPv1 (IEEE 1588-2002) and PTPv2 (IEEE 1588-2008/2019).
 
 ![License](https://img.shields.io/badge/license-GPLv2-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)
@@ -17,11 +17,12 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 
 ### 🌐 **Network Monitoring**
 - 🔍 Automatic PTP host discovery on port 319 and 320
-- 📡 Real-time packet capture and analysis
+- 📡 Real-time packet capture and analysis for both PTPv1 and PTPv2
 - 🏷️ Host classification by PTP state
 - 📈 Network statistics and quality metrics
 - 🕐 Timing relationship tracking
 - 🌳 Visual hierarchy mapping of leader-follower relationships
+- 🔄 Automatic protocol version detection and handling
 
 ### 📋 **Host Management**
 - 📝 Comprehensive host table with sortable columns
@@ -32,8 +33,9 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 - 🔍 OUI database integration to show vendor information
 
 ### 📦 **Packet Analysis**
-- 📋 Real-time packet history
+- 📋 Real-time packet history with version identification
 - 🎨 Color-coded message types (ANNOUNCE, SYNC, DELAY_REQ, etc.)
+- 🔍 Support for both PTPv1 and PTPv2 message formats
 
 ## Demo
 
@@ -125,6 +127,7 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 - 🎨 Multiple theme support
 - ⌨️ Comprehensive keyboard controls
 - 🔍 Debug mode with scroll information
+- 🔄 Full support for both PTPv1 (IEEE 1588-2002) and PTPv2 (IEEE 1588-2008/2019)
 
 ### 🗺️ **Future Roadmap**
 - 📤 **Data export** - JSON, PCAP output formats
