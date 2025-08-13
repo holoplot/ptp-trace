@@ -850,7 +850,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
 
     let widths = [
         Constraint::Length(10), // Time Ago
-        Constraint::Length(12), // Source IP
+        Constraint::Length(15), // Source IP
         Constraint::Length(5),  // Port
         Constraint::Length(10), // Interface
         Constraint::Length(4),  // Version
