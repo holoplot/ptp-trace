@@ -156,7 +156,7 @@ impl App {
             packet_scroll_offset: 0,
             max_packet_history: 1000,
             packet_history_expanded: false,
-            sort_column: SortColumn::State,
+            sort_column: SortColumn::ClockIdentity,
             sort_ascending: false,
             selected_host_id: None,
             tree_view_enabled: false,
