@@ -148,12 +148,12 @@ pub struct AnnounceMessage {
 }
 
 pub struct SyncMessage {
-    pub header: PtpHeader,
+    pub _header: PtpHeader,
     pub origin_timestamp: [u8; 10],
 }
 
 pub struct FollowUpMessage {
-    pub header: PtpHeader,
+    pub _header: PtpHeader,
     pub precise_origin_timestamp: [u8; 10],
 }
 
@@ -1216,7 +1216,7 @@ impl PtpTracker {
         origin_timestamp.copy_from_slice(&sync_data[0..10]);
 
         Ok(SyncMessage {
-            header,
+            _header: header,
             origin_timestamp,
         })
     }
@@ -1240,7 +1240,7 @@ impl PtpTracker {
         precise_origin_timestamp.copy_from_slice(&followup_data[0..10]);
 
         Ok(FollowUpMessage {
-            header,
+            _header: header,
             precise_origin_timestamp,
         })
     }
