@@ -194,9 +194,6 @@ impl App {
         let mut last_tick = Instant::now();
 
         loop {
-            // Ensure host selection is consistent before drawing UI
-            self.restore_host_selection();
-
             // Draw the UI
             terminal.draw(|f| ui(f, self))?;
 
@@ -302,23 +299,13 @@ impl App {
                 self.cycle_sort_column_previous();
             }
             KeyCode::Char('t') => {
-                // Store current selection before toggling
-                if self.tree_view_enabled {
-                    let hierarchical_hosts = self.get_hierarchical_hosts();
-                    if let Some(h_host) = hierarchical_hosts.get(self.selected_index) {
-                        self.selected_host_id = Some(h_host.host.clock_identity.clone());
-                    }
-                } else {
-                    let hosts = self.get_hosts();
-                    if let Some(host) = hosts.get(self.selected_index) {
-                        self.selected_host_id = Some(host.clock_identity.clone());
-                    }
-                }
-
                 self.tree_view_enabled = !self.tree_view_enabled;
 
-                // Restore selection in the new view mode
+                // Try to restore selection in the new view mode
                 self.restore_host_selection();
+
+                // Ensure selection is valid in case restore failed
+                self.ensure_selection_valid();
             }
 
             _ => {
@@ -335,8 +322,15 @@ impl App {
         }
 
         // Update the stored selected host ID from current selection
-        if let Some(host) = self.get_hosts().get(self.selected_index) {
-            self.selected_host_id = Some(host.clock_identity.clone());
+        if self.tree_view_enabled {
+            let hierarchical_hosts = self.get_hierarchical_hosts();
+            if let Some(h_host) = hierarchical_hosts.get(self.selected_index) {
+                self.selected_host_id = Some(h_host.host.clock_identity.clone());
+            }
+        } else {
+            if let Some(host) = self.get_hosts().get(self.selected_index) {
+                self.selected_host_id = Some(host.clock_identity.clone());
+            }
         }
 
         let processed_packets = self.ptp_tracker.scan_network().await?;
@@ -361,8 +355,8 @@ impl App {
             self.add_packet(packet_info);
         }
 
-        // Always restore host selection based on stored ID
-        self.restore_host_selection();
+        // Ensure selection is still valid after data updates
+        self.ensure_selection_valid();
 
         self.last_update = Instant::now();
         Ok(())
@@ -801,27 +795,18 @@ impl App {
     }
 
     pub fn cycle_sort_column(&mut self) {
-        // Store currently selected host before sorting changes
         self.sort_column = self.sort_column.next();
-
-        // Restore selection after sorting
-        self.restore_host_selection();
+        self.ensure_selection_valid();
     }
 
     pub fn cycle_sort_column_previous(&mut self) {
-        // Store currently selected host before sorting changes
         self.sort_column = self.sort_column.previous();
-
-        // Restore selection after sorting
-        self.restore_host_selection();
+        self.ensure_selection_valid();
     }
 
     pub fn toggle_sort_direction(&mut self) {
-        // Store currently selected host before sorting changes
         self.sort_ascending = !self.sort_ascending;
-
-        // Restore selection after sorting
-        self.restore_host_selection();
+        self.ensure_selection_valid();
     }
 
     pub fn is_sort_ascending(&self) -> bool {
@@ -958,5 +943,35 @@ impl App {
 
     pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    fn ensure_selection_valid(&mut self) {
+        let total_hosts = if self.tree_view_enabled {
+            self.get_hierarchical_hosts().len()
+        } else {
+            self.get_hosts().len()
+        };
+
+        if total_hosts == 0 {
+            self.selected_index = 0;
+            self.selected_host_id = None;
+            return;
+        }
+
+        // Ensure index is within bounds
+        if self.selected_index >= total_hosts {
+            self.selected_index = total_hosts.saturating_sub(1);
+        }
+
+        // Update stored host ID to match current selection
+        if self.tree_view_enabled {
+            if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
+                self.selected_host_id = Some(h_host.host.clock_identity.clone());
+            }
+        } else {
+            if let Some(host) = self.get_hosts().get(self.selected_index) {
+                self.selected_host_id = Some(host.clock_identity.clone());
+            }
+        }
     }
 }
