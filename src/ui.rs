@@ -85,21 +85,33 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let theme = &app.theme;
 
     // Create header content with version and build info
+    let mut header_spans = vec![
+        Span::styled(
+            "PTP Network Tracer",
+            Style::default()
+                .fg(theme.header_fg)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {}", version::get_version()),
+            Style::default()
+                .fg(theme.text_accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ];
+
+    // Add PAUSED indicator if paused
+    if app.paused {
+        header_spans.push(Span::styled(
+            " [PAUSED]",
+            Style::default()
+                .fg(Color::Red)
+                .add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK),
+        ));
+    }
+
     let header_content = vec![
-        Line::from(vec![
-            Span::styled(
-                "PTP Network Tracer",
-                Style::default()
-                    .fg(theme.header_fg)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" {}", version::get_version()),
-                Style::default()
-                    .fg(theme.text_accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]),
+        Line::from(header_spans),
         Line::from(vec![Span::styled(
             format!(
                 "Built: {} | Git: {}",
@@ -694,8 +706,8 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from("  r          - Refresh/rescan network"),
-        Line::from("  c          - Clear all hosts"),
-        Line::from("  p          - Clear packet history"),
+        Line::from("  c          - Clear hosts and packet history"),
+        Line::from("  p          - Toggle pause mode"),
         Line::from("  s          - Cycle host table sorting"),
         Line::from("  a          - Previous sort column"),
         Line::from("  S          - Reverse sort direction"),

@@ -13,6 +13,7 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 - ⌨️ Intuitive keyboard navigation
 - 📱 Responsive layout that adapts to terminal size
 - 🔄 Live updates without screen flicker
+- ⏸️ Pause mode to temporarily stop network parsing for UI inspection
 
 ### 🌐 **Network Monitoring**
 - 🔍 Automatic PTP host discovery on port 319 and 320
@@ -99,8 +100,8 @@ cargo build --release
 
 ### 🎬 **Actions**
 - `r` - 🔄 Refresh/rescan network
-- `c` - 🗑️ Clear all hosts
-- `p` - 📋 Clear packet history
+- `c` - 🗑️ Clear hosts and packet history
+- `p` - ⏸️ Toggle pause mode
 - `e` - 📊 Toggle expanded packet history
 - `d` - 🐛 Toggle debug mode
 

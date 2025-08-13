@@ -126,6 +126,7 @@ pub struct App {
     pub sort_ascending: bool,
     pub selected_host_id: Option<String>,
     pub tree_view_enabled: bool,
+    pub paused: bool,
 }
 
 impl App {
@@ -159,6 +160,7 @@ impl App {
             sort_ascending: false,
             selected_host_id: None,
             tree_view_enabled: false,
+            paused: false,
         })
     }
 
@@ -256,6 +258,7 @@ impl App {
             }
             KeyCode::Char('c') => {
                 self.ptp_tracker.clear_hosts();
+                self.clear_packet_history();
                 self.selected_index = 0;
                 self.selected_host_id = None;
             }
@@ -281,7 +284,7 @@ impl App {
                 self.debug = !self.debug;
             }
             KeyCode::Char('p') => {
-                self.clear_packet_history();
+                self.paused = !self.paused;
             }
             KeyCode::Char('w') => {
                 self.toggle_auto_scroll();
@@ -326,6 +329,11 @@ impl App {
     }
 
     pub async fn update_data(&mut self) -> Result<()> {
+        // Skip network scanning if paused
+        if self.paused {
+            return Ok(());
+        }
+
         // Update the stored selected host ID from current selection
         if let Some(host) = self.get_hosts().get(self.selected_index) {
             self.selected_host_id = Some(host.clock_identity.clone());
@@ -946,5 +954,9 @@ impl App {
 
     pub fn is_packet_history_expanded(&self) -> bool {
         self.packet_history_expanded
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused
     }
 }
