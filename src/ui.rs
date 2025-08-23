@@ -1037,7 +1037,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(4),  // Version
         Constraint::Length(13), // Message Type
         Constraint::Length(6),  // Length
-        Constraint::Length(22), // Clock Identity
+        Constraint::Length(24), // Clock Identity
         Constraint::Length(7),  // Domain
         Constraint::Length(5),  // Sequence
         Constraint::Length(6),  // Flags
