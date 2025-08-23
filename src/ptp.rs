@@ -22,12 +22,12 @@ pub struct PtpHost {
     pub offset_scaled_log_variance: u16,
     pub steps_removed: u16,
     pub time_source: u8,
-    pub grandleader_identity: String,
-    pub grandleader_priority1: u8,
-    pub grandleader_priority2: u8,
-    pub grandleader_clock_class: u8,
-    pub grandleader_clock_accuracy: u8,
-    pub grandleader_offset_scaled_log_variance: u16,
+    pub primary_transmitter_identity: String,
+    pub primary_transmitter_priority1: u8,
+    pub primary_transmitter_priority2: u8,
+    pub primary_transmitter_clock_class: u8,
+    pub primary_transmitter_clock_accuracy: u8,
+    pub primary_transmitter_scaled_log_variance: u16,
     pub last_seen: Instant,
     pub announce_count: u32,
     pub sync_count: u32,
@@ -36,8 +36,8 @@ pub struct PtpHost {
     pub total_message_count: u32,
 
     pub state: PtpState,
-    pub selected_leader_id: Option<String>,
-    pub selected_leader_confidence: f32, // 0.0 to 1.0 confidence score
+    pub selected_transmitter_id: Option<String>,
+    pub selected_transmitter_confidence: f32, // 0.0 to 1.0 confidence score
     pub last_sync_timestamp: Option<Instant>,
     pub current_utc_offset: Option<i16>,
     pub last_origin_timestamp: Option<[u8; 10]>,
@@ -53,11 +53,11 @@ pub struct PtpHost {
 pub enum PtpState {
     Initializing,
     Listening,
-    PreLeader,
-    Leader,
+    PreTransmitter,
+    Transmitter,
     Passive,
     Uncalibrated,
-    Follower,
+    Receiver,
     Faulty,
     Disabled,
     Unknown,
@@ -72,16 +72,16 @@ impl Default for PtpState {
 impl std::fmt::Display for PtpState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PtpState::Initializing => write!(f, "INIT"),
-            PtpState::Listening => write!(f, "LSTN"),
-            PtpState::PreLeader => write!(f, "PREL"),
-            PtpState::Leader => write!(f, "LEAD"),
-            PtpState::Passive => write!(f, "PASV"),
-            PtpState::Uncalibrated => write!(f, "UNCL"),
-            PtpState::Follower => write!(f, "FOLL"),
-            PtpState::Faulty => write!(f, "FALT"),
-            PtpState::Disabled => write!(f, "DSBL"),
-            PtpState::Unknown => write!(f, "UNKN"),
+            PtpState::Initializing => write!(f, "I"),
+            PtpState::Listening => write!(f, "L"),
+            PtpState::PreTransmitter => write!(f, "PL"),
+            PtpState::Transmitter => write!(f, "T"),
+            PtpState::Passive => write!(f, "P"),
+            PtpState::Uncalibrated => write!(f, "U"),
+            PtpState::Receiver => write!(f, "R"),
+            PtpState::Faulty => write!(f, "F"),
+            PtpState::Disabled => write!(f, "D"),
+            PtpState::Unknown => write!(f, "?"),
         }
     }
 }
@@ -139,10 +139,10 @@ pub struct AnnounceMessage {
     pub header: PtpHeader,
     pub origin_timestamp: [u8; 10],
     pub current_utc_offset: i16,
-    pub grandmaster_priority_1: u8,
-    pub grandmaster_clock_quality: [u8; 4],
-    pub grandmaster_priority_2: u8,
-    pub grandmaster_identity: [u8; 8],
+    pub primary_transmitter_priority_1: u8,
+    pub primary_transmitter_clock_quality: [u8; 4],
+    pub primary_transmitter_priority_2: u8,
+    pub primary_transmitter_identity: [u8; 8],
     pub steps_removed: u16,
     pub time_source: u8,
 }
@@ -174,14 +174,14 @@ impl PtpHost {
             clock_class: 248,
             clock_accuracy: 0xFE,
             offset_scaled_log_variance: 0xFFFF,
-            steps_removed: 0, // Initialize as potential leader
+            steps_removed: 0, // Initialize as potential transmitter
             time_source: 0xA0,
-            grandleader_identity: "00:00:00:00:00:00:00:00".to_string(),
-            grandleader_priority1: 128,
-            grandleader_priority2: 128,
-            grandleader_clock_class: 248,
-            grandleader_clock_accuracy: 0xFE,
-            grandleader_offset_scaled_log_variance: 0xFFFF,
+            primary_transmitter_identity: "00:00:00:00:00:00:00:00".to_string(),
+            primary_transmitter_priority1: 128,
+            primary_transmitter_priority2: 128,
+            primary_transmitter_clock_class: 248,
+            primary_transmitter_clock_accuracy: 0xFE,
+            primary_transmitter_scaled_log_variance: 0xFFFF,
             last_seen: now,
             announce_count: 0,
             sync_count: 0,
@@ -190,8 +190,8 @@ impl PtpHost {
             total_message_count: 0,
 
             state: PtpState::Listening,
-            selected_leader_id: None,
-            selected_leader_confidence: 0.0,
+            selected_transmitter_id: None,
+            selected_transmitter_confidence: 0.0,
             last_sync_timestamp: None,
             current_utc_offset: None,
             last_origin_timestamp: None,
@@ -208,12 +208,12 @@ impl PtpHost {
         self.last_seen = Instant::now();
     }
 
-    pub fn is_leader(&self) -> bool {
-        matches!(self.state, PtpState::Leader)
+    pub fn is_transmitter(&self) -> bool {
+        matches!(self.state, PtpState::Transmitter)
     }
 
-    pub fn is_follower(&self) -> bool {
-        matches!(self.state, PtpState::Follower)
+    pub fn is_receiver(&self) -> bool {
+        matches!(self.state, PtpState::Receiver)
     }
 
     pub fn get_vendor_name(&self) -> Option<&'static str> {
@@ -284,35 +284,35 @@ impl PtpHost {
 
     fn update_from_announce(&mut self, announce: &AnnounceMessage) {
         self.domain_number = announce.header.domain_number;
-        self.priority1 = announce.grandmaster_priority_1;
-        self.priority2 = announce.grandmaster_priority_2;
-        self.clock_class = announce.grandmaster_clock_quality[0];
-        self.clock_accuracy = announce.grandmaster_clock_quality[1];
+        self.priority1 = announce.primary_transmitter_priority_1;
+        self.priority2 = announce.primary_transmitter_priority_2;
+        self.clock_class = announce.primary_transmitter_clock_quality[0];
+        self.clock_accuracy = announce.primary_transmitter_clock_quality[1];
         self.offset_scaled_log_variance = u16::from_be_bytes([
-            announce.grandmaster_clock_quality[2],
-            announce.grandmaster_clock_quality[3],
+            announce.primary_transmitter_clock_quality[2],
+            announce.primary_transmitter_clock_quality[3],
         ]);
         self.steps_removed = announce.steps_removed;
         self.time_source = announce.time_source;
 
-        self.grandleader_identity = format!(
+        self.primary_transmitter_identity = format!(
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            announce.grandmaster_identity[0],
-            announce.grandmaster_identity[1],
-            announce.grandmaster_identity[2],
-            announce.grandmaster_identity[3],
-            announce.grandmaster_identity[4],
-            announce.grandmaster_identity[5],
-            announce.grandmaster_identity[6],
-            announce.grandmaster_identity[7]
+            announce.primary_transmitter_identity[0],
+            announce.primary_transmitter_identity[1],
+            announce.primary_transmitter_identity[2],
+            announce.primary_transmitter_identity[3],
+            announce.primary_transmitter_identity[4],
+            announce.primary_transmitter_identity[5],
+            announce.primary_transmitter_identity[6],
+            announce.primary_transmitter_identity[7]
         );
-        self.grandleader_priority1 = announce.grandmaster_priority_1;
-        self.grandleader_priority2 = announce.grandmaster_priority_2;
-        self.grandleader_clock_class = announce.grandmaster_clock_quality[0];
-        self.grandleader_clock_accuracy = announce.grandmaster_clock_quality[1];
-        self.grandleader_offset_scaled_log_variance = u16::from_be_bytes([
-            announce.grandmaster_clock_quality[2],
-            announce.grandmaster_clock_quality[3],
+        self.primary_transmitter_priority1 = announce.primary_transmitter_priority_1;
+        self.primary_transmitter_priority2 = announce.primary_transmitter_priority_2;
+        self.primary_transmitter_clock_class = announce.primary_transmitter_clock_quality[0];
+        self.primary_transmitter_clock_accuracy = announce.primary_transmitter_clock_quality[1];
+        self.primary_transmitter_scaled_log_variance = u16::from_be_bytes([
+            announce.primary_transmitter_clock_quality[2],
+            announce.primary_transmitter_clock_quality[3],
         ]);
 
         // Store UTC offset and origin timestamp
@@ -320,27 +320,27 @@ impl PtpHost {
         self.last_origin_timestamp = Some(announce.origin_timestamp);
 
         // Determine state based on PTP hierarchy info
-        // Key insight: Compare the announcing device's clock identity with the grandmaster it claims
-        let _is_self_grandmaster = self.clock_identity == self.grandleader_identity;
+        // Key insight: Compare the announcing device's clock identity with the primary transmitter it claims
+        let _is_self_primary_transmitter = self.clock_identity == self.primary_transmitter_identity;
 
-        // Set state and selected leader based on announce content
+        // Set state and selected transmitter based on announce content
         if self.steps_removed == 0 {
-            // This device claims to be the grandmaster
-            self.state = PtpState::Leader;
-            self.selected_leader_id = None; // Leaders don't follow anyone
+            // This device claims to be the primary transmitter
+            self.state = PtpState::Transmitter;
+            self.selected_transmitter_id = None; // Transmitters don't receive from anyone
         } else {
-            // This device is following the announced grandmaster
-            // Only set selected leader from announce if we don't already have it from sync traffic
-            if self.selected_leader_id.is_none()
-                && self.grandleader_identity != "00:00:00:00:00:00:00:00"
-                && !self.grandleader_identity.is_empty()
+            // This device is following the announced primary transmitter
+            // Only set selected transmitter from announce if we don't already have it from sync traffic
+            if self.selected_transmitter_id.is_none()
+                && self.primary_transmitter_identity != "00:00:00:00:00:00:00:00"
+                && !self.primary_transmitter_identity.is_empty()
             {
-                self.selected_leader_id = Some(self.grandleader_identity.clone());
-                self.selected_leader_confidence = 0.7; // Good confidence from announce
+                self.selected_transmitter_id = Some(self.primary_transmitter_identity.clone());
+                self.selected_transmitter_confidence = 0.7; // Good confidence from announce
             }
 
             if self.steps_removed == 1 {
-                self.state = PtpState::Follower;
+                self.state = PtpState::Receiver;
             } else {
                 self.state = PtpState::Passive;
             }
@@ -758,7 +758,7 @@ pub struct PtpTracker {
     last_packet: Instant,
     event_socket: UdpSocket,
     general_socket: UdpSocket,
-    // Track recent sync/follow-up senders per domain for master-slave correlation
+    // Track recent sync/follow-up senders per domain for transmitter-receiver correlation
     recent_sync_senders: HashMap<u8, Vec<(String, Instant)>>,
     // Track interfaces for determining inbound interface of packets
     interfaces: Vec<(String, std::net::Ipv4Addr)>,
@@ -1014,57 +1014,57 @@ impl PtpTracker {
 
                 // If we see sync messages but no announce messages, infer state
                 if host.announce_count == 0 {
-                    // Sync messages usually come from masters/leaders
-                    host.state = PtpState::Leader;
-                    host.selected_leader_id = None; // Leaders don't follow anyone
+                    // Sync messages usually come from (primary) transmitters
+                    host.state = PtpState::Transmitter;
+                    host.selected_transmitter_id = None; // Transmitters don't receive from anyone
                 }
             }
             PtpMessageType::DelayReq => {
                 host.delay_req_count += 1;
                 host.total_message_count += 1;
-                // Delay requests are sent by followers
+                // Delay requests are sent by receivers
                 if host.announce_count == 0 {
-                    host.state = PtpState::Follower;
+                    host.state = PtpState::Receiver;
                 }
 
-                // Find the most recent sync sender in this domain - this is the chosen master
+                // Find the most recent sync sender in this domain - this is the chosen transmitter
                 // Look for sync traffic within the last 10 seconds as it should be recent
                 let now = std::time::Instant::now();
                 if let Some(domain_senders) = self.recent_sync_senders.get(&header.domain_number) {
                     // Find the most recent sync sender that's still active (within last 10 seconds)
-                    if let Some((master_id, _sync_time)) = domain_senders
+                    if let Some((transmitter_id, _sync_time)) = domain_senders
                         .iter()
                         .filter(|(_, timestamp)| {
                             now.duration_since(*timestamp) < Duration::from_secs(10)
                         })
                         .max_by_key(|(_, timestamp)| *timestamp)
                     {
-                        host.selected_leader_id = Some(master_id.clone());
-                        host.selected_leader_confidence = 1.0; // High confidence - recent sync traffic
-                    } else if let Some((master_id, _)) = domain_senders
+                        host.selected_transmitter_id = Some(transmitter_id.clone());
+                        host.selected_transmitter_confidence = 1.0; // High confidence - recent sync traffic
+                    } else if let Some((transmitter_id, _)) = domain_senders
                         .iter()
                         .max_by_key(|(_, timestamp)| *timestamp)
                     {
                         // Fall back to any recent sync sender even if slightly older
-                        host.selected_leader_id = Some(master_id.clone());
-                        host.selected_leader_confidence = 0.5; // Medium confidence - older sync traffic
-                    } else if host.selected_leader_id.is_none() {
-                        host.selected_leader_id = Some("No recent sync traffic".to_string());
-                        host.selected_leader_confidence = 0.0;
+                        host.selected_transmitter_id = Some(transmitter_id.clone());
+                        host.selected_transmitter_confidence = 0.5; // Medium confidence - older sync traffic
+                    } else if host.selected_transmitter_id.is_none() {
+                        host.selected_transmitter_id = Some("No recent sync traffic".to_string());
+                        host.selected_transmitter_confidence = 0.0;
                     }
-                } else if host.selected_leader_id.is_none() {
-                    host.selected_leader_id = Some("No sync traffic seen".to_string());
-                    host.selected_leader_confidence = 0.0;
+                } else if host.selected_transmitter_id.is_none() {
+                    host.selected_transmitter_id = Some("No sync traffic seen".to_string());
+                    host.selected_transmitter_confidence = 0.0;
                 }
             }
             PtpMessageType::DelayResp => {
                 host.delay_resp_count += 1;
                 host.total_message_count += 1;
 
-                // Delay responses are sent by masters/leaders
+                // Delay responses are sent by (primary) transmitters
                 if host.announce_count == 0 {
-                    host.state = PtpState::Leader;
-                    host.selected_leader_id = None; // Leaders don't follow anyone
+                    host.state = PtpState::Transmitter;
+                    host.selected_transmitter_id = None; // Transmitters don't receive from anyone
                 }
             }
             PtpMessageType::FollowUp => {
@@ -1095,10 +1095,10 @@ impl PtpTracker {
                     now.duration_since(*timestamp) < Duration::from_secs(60)
                 });
 
-                // Follow-up messages are sent by masters for two-step timing
+                // Follow-up messages are sent by transmitters for two-step timing
                 if host.announce_count == 0 {
-                    host.state = PtpState::Leader;
-                    host.selected_leader_id = None; // Leaders don't follow anyone
+                    host.state = PtpState::Transmitter;
+                    host.selected_transmitter_id = None; // Transmitters don't receive from anyone
                 }
             }
             _ => {
@@ -1171,15 +1171,15 @@ impl PtpTracker {
         let current_utc_offset = i16::from_be_bytes([announce_data[10], announce_data[11]]);
 
         // Skip reserved byte at index 12
-        let grandmaster_priority_1 = announce_data[13];
+        let primary_transmitter_priority_1 = announce_data[13];
 
-        let mut grandmaster_clock_quality = [0u8; 4];
-        grandmaster_clock_quality.copy_from_slice(&announce_data[14..18]);
+        let mut primary_transmitter_clock_quality = [0u8; 4];
+        primary_transmitter_clock_quality.copy_from_slice(&announce_data[14..18]);
 
-        let grandmaster_priority_2 = announce_data[18];
+        let primary_transmitter_priority_2 = announce_data[18];
 
-        let mut grandmaster_identity = [0u8; 8];
-        grandmaster_identity.copy_from_slice(&announce_data[19..27]);
+        let mut primary_transmitter_identity = [0u8; 8];
+        primary_transmitter_identity.copy_from_slice(&announce_data[19..27]);
 
         let steps_removed = u16::from_be_bytes([announce_data[27], announce_data[28]]);
         let time_source = announce_data[29];
@@ -1188,10 +1188,10 @@ impl PtpTracker {
             header,
             origin_timestamp,
             current_utc_offset,
-            grandmaster_priority_1,
-            grandmaster_clock_quality,
-            grandmaster_priority_2,
-            grandmaster_identity,
+            primary_transmitter_priority_1,
+            primary_transmitter_clock_quality,
+            primary_transmitter_priority_2,
+            primary_transmitter_identity,
             steps_removed,
             time_source,
         })
@@ -1261,8 +1261,8 @@ impl PtpTracker {
     pub fn get_hosts(&self) -> Vec<&PtpHost> {
         let mut hosts: Vec<&PtpHost> = self.hosts.values().collect();
         hosts.sort_by(|a, b| {
-            // Sort by: Leader first, then by quality, then by clock identity
-            match (a.is_leader(), b.is_leader()) {
+            // Sort by: transmitter first, then by quality, then by clock identity
+            match (a.is_transmitter(), b.is_transmitter()) {
                 (true, false) => std::cmp::Ordering::Less,
                 (false, true) => std::cmp::Ordering::Greater,
                 _ => match b.quality_indicator().cmp(&a.quality_indicator()) {
@@ -1278,12 +1278,12 @@ impl PtpTracker {
         self.hosts.clear();
     }
 
-    pub fn get_leader_count(&self) -> usize {
-        self.hosts.values().filter(|h| h.is_leader()).count()
+    pub fn get_transmitter_count(&self) -> usize {
+        self.hosts.values().filter(|h| h.is_transmitter()).count()
     }
 
-    pub fn get_follower_count(&self) -> usize {
-        self.hosts.values().filter(|h| h.is_follower()).count()
+    pub fn get_receiver_count(&self) -> usize {
+        self.hosts.values().filter(|h| h.is_receiver()).count()
     }
 
     pub fn get_last_packet_age(&self) -> Duration {

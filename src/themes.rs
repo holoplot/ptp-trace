@@ -33,8 +33,8 @@ impl ThemeName {
 #[derive(Debug, Clone)]
 pub struct Theme {
     // PTP State colors
-    pub state_leader: Color,
-    pub state_follower: Color,
+    pub state_transmitter: Color,
+    pub state_receiver: Color,
     pub state_listening: Color,
     pub state_passive: Color,
     pub state_faulty: Color,
@@ -74,8 +74,8 @@ impl Theme {
     fn default_theme() -> Self {
         Self {
             // PTP State colors
-            state_leader: Color::Green,
-            state_follower: Color::Blue,
+            state_transmitter: Color::Green,
+            state_receiver: Color::Blue,
             state_listening: Color::Yellow,
             state_passive: Color::Magenta,
             state_faulty: Color::Red,
@@ -107,13 +107,13 @@ impl Theme {
     fn monokai_theme() -> Self {
         Self {
             // PTP State colors - Monokai inspired
-            state_leader: Color::Rgb(166, 226, 46), // Monokai green
-            state_follower: Color::Rgb(102, 217, 239), // Monokai cyan
-            state_listening: Color::Rgb(253, 151, 31), // Monokai orange
-            state_passive: Color::Rgb(174, 129, 255), // Monokai purple
-            state_faulty: Color::Rgb(249, 38, 114), // Monokai pink/red
-            state_disabled: Color::Rgb(117, 113, 94), // Monokai gray
-            state_unknown: Color::Rgb(248, 248, 242), // Monokai white
+            state_transmitter: Color::Rgb(166, 226, 46), // Monokai green
+            state_receiver: Color::Rgb(102, 217, 239),   // Monokai cyan
+            state_listening: Color::Rgb(253, 151, 31),   // Monokai orange
+            state_passive: Color::Rgb(174, 129, 255),    // Monokai purple
+            state_faulty: Color::Rgb(249, 38, 114),      // Monokai pink/red
+            state_disabled: Color::Rgb(117, 113, 94),    // Monokai gray
+            state_unknown: Color::Rgb(248, 248, 242),    // Monokai white
 
             // UI element colors - Monokai inspired
             header_fg: Color::Rgb(248, 248, 242), // Monokai white
@@ -140,13 +140,13 @@ impl Theme {
     fn matrix_theme() -> Self {
         Self {
             // PTP State colors - Matrix inspired
-            state_leader: Color::Rgb(0, 255, 65), // Bright matrix green
-            state_follower: Color::Rgb(0, 200, 50), // Medium matrix green
-            state_listening: Color::Rgb(0, 150, 35), // Darker matrix green
-            state_passive: Color::Rgb(0, 100, 25), // Very dark matrix green
-            state_faulty: Color::Rgb(255, 0, 0),  // Matrix red for errors
-            state_disabled: Color::Rgb(50, 50, 50), // Dark gray
-            state_unknown: Color::Rgb(0, 180, 40), // Matrix green variant
+            state_transmitter: Color::Rgb(0, 255, 65), // Bright matrix green
+            state_receiver: Color::Rgb(0, 200, 50),    // Medium matrix green
+            state_listening: Color::Rgb(0, 150, 35),   // Darker matrix green
+            state_passive: Color::Rgb(0, 100, 25),     // Very dark matrix green
+            state_faulty: Color::Rgb(255, 0, 0),       // Matrix red for errors
+            state_disabled: Color::Rgb(50, 50, 50),    // Dark gray
+            state_unknown: Color::Rgb(0, 180, 40),     // Matrix green variant
 
             // UI element colors - Matrix inspired
             header_fg: Color::Rgb(0, 255, 65), // Bright matrix green
@@ -173,8 +173,8 @@ impl Theme {
     pub fn get_state_color(&self, state: &crate::ptp::PtpState) -> Color {
         use crate::ptp::PtpState;
         match state {
-            PtpState::Leader => self.state_leader,
-            PtpState::Follower => self.state_follower,
+            PtpState::Transmitter => self.state_transmitter,
+            PtpState::Receiver => self.state_receiver,
             PtpState::Listening => self.state_listening,
             PtpState::Passive => self.state_passive,
             PtpState::Faulty => self.state_faulty,

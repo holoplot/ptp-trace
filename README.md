@@ -21,11 +21,11 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 - 🏷️ Host classification by PTP state
 - 📈 Network statistics and quality metrics
 - 🕐 Timing relationship tracking
-- 🌳 Visual hierarchy mapping of leader-follower relationships
+- 🌳 Visual hierarchy mapping of transmitter-receiver relationships
 
 ### 📋 **Host Management**
 - 📝 Comprehensive host table with sortable columns
-- 🌳 Hierarchical tree view showing leader-follower relationships
+- 🌳 Hierarchical tree view showing transmitter-receiver relationships
 - 🔢 Multiple sort options (State, IP, Clock Identity, Domain, etc.)
 - 🎯 Selection tracking across operations
 - 📊 Quality indicators and confidence levels

@@ -34,7 +34,7 @@ pub enum SortColumn {
     Domain,
     Priority,
     ClockClass,
-    SelectedLeader,
+    SelectedTransmitter,
     MessageCount,
     LastSeen,
 }
@@ -53,8 +53,8 @@ impl SortColumn {
             SortColumn::IpAddress => SortColumn::Domain,
             SortColumn::Domain => SortColumn::Priority,
             SortColumn::Priority => SortColumn::ClockClass,
-            SortColumn::ClockClass => SortColumn::SelectedLeader,
-            SortColumn::SelectedLeader => SortColumn::MessageCount,
+            SortColumn::ClockClass => SortColumn::SelectedTransmitter,
+            SortColumn::SelectedTransmitter => SortColumn::MessageCount,
             SortColumn::MessageCount => SortColumn::LastSeen,
             SortColumn::LastSeen => SortColumn::State,
         }
@@ -63,8 +63,8 @@ impl SortColumn {
     pub fn previous(&self) -> Self {
         match self {
             SortColumn::LastSeen => SortColumn::MessageCount,
-            SortColumn::MessageCount => SortColumn::SelectedLeader,
-            SortColumn::SelectedLeader => SortColumn::ClockClass,
+            SortColumn::MessageCount => SortColumn::SelectedTransmitter,
+            SortColumn::SelectedTransmitter => SortColumn::ClockClass,
             SortColumn::ClockClass => SortColumn::Priority,
             SortColumn::Priority => SortColumn::Domain,
             SortColumn::Domain => SortColumn::IpAddress,
@@ -82,7 +82,7 @@ impl SortColumn {
             SortColumn::Domain => "Domain",
             SortColumn::Priority => "Priority",
             SortColumn::ClockClass => "Clock Class",
-            SortColumn::SelectedLeader => "Selected Leader",
+            SortColumn::SelectedTransmitter => "Selected Transmitter",
             SortColumn::MessageCount => "Msg Count",
             SortColumn::LastSeen => "Last Seen",
         }
@@ -601,12 +601,12 @@ impl App {
             .map(|host| (host.clock_identity.as_str(), *host))
             .collect();
 
-        // Find root hosts (those without a leader or whose leader is themselves)
+        // Find root hosts (those without a transmitter or whose transmitter is themselves)
         let mut roots: Vec<&PtpHost> = hosts
             .iter()
             .filter(|host| {
-                host.selected_leader_id.is_none()
-                    || host.selected_leader_id.as_ref() == Some(&host.clock_identity)
+                host.selected_transmitter_id.is_none()
+                    || host.selected_transmitter_id.as_ref() == Some(&host.clock_identity)
             })
             .copied()
             .collect();
@@ -627,7 +627,7 @@ impl App {
             }
         }
 
-        // Add any orphaned hosts (those whose leader is not found)
+        // Add any orphaned hosts (those whose transmitter is not found)
         for host in hosts.iter() {
             if !visited.contains(&host.clock_identity) {
                 hierarchical_hosts.push(HierarchicalHost { host, depth: 0 });
@@ -653,11 +653,11 @@ impl App {
         visited.insert(host.clock_identity.clone());
         hierarchical_hosts.push(HierarchicalHost { host, depth });
 
-        // Find children (hosts that have this host as their selected leader)
+        // Find children (hosts that have this host as their selected transmitter)
         let mut children: Vec<&PtpHost> = host_map
             .values()
             .filter(|child| {
-                child.selected_leader_id.as_ref() == Some(&host.clock_identity)
+                child.selected_transmitter_id.as_ref() == Some(&host.clock_identity)
                     && child.clock_identity != host.clock_identity
                     && !visited.contains(&child.clock_identity)
             })
@@ -684,15 +684,15 @@ impl App {
                 }
                 SortColumn::State => {
                     let a_state_order = match a.state {
-                        PtpState::Leader => 0,
-                        PtpState::Follower => 1,
+                        PtpState::Transmitter => 0,
+                        PtpState::Receiver => 1,
                         PtpState::Passive => 2,
                         PtpState::Listening => 3,
                         _ => 4,
                     };
                     let b_state_order = match b.state {
-                        PtpState::Leader => 0,
-                        PtpState::Follower => 1,
+                        PtpState::Transmitter => 0,
+                        PtpState::Receiver => 1,
                         PtpState::Passive => 2,
                         PtpState::Listening => 3,
                         _ => 4,
@@ -702,10 +702,10 @@ impl App {
                 SortColumn::Domain => a.domain_number.cmp(&b.domain_number),
                 SortColumn::Priority => a.priority1.cmp(&b.priority1),
                 SortColumn::ClockClass => a.clock_class.cmp(&b.clock_class),
-                SortColumn::SelectedLeader => {
-                    let a_leader = a.selected_leader_id.as_deref().unwrap_or("");
-                    let b_leader = b.selected_leader_id.as_deref().unwrap_or("");
-                    a_leader.cmp(b_leader)
+                SortColumn::SelectedTransmitter => {
+                    let a = a.selected_transmitter_id.as_deref().unwrap_or("");
+                    let b = b.selected_transmitter_id.as_deref().unwrap_or("");
+                    a.cmp(b)
                 }
                 SortColumn::MessageCount => a.total_message_count.cmp(&b.total_message_count),
                 SortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
@@ -733,15 +733,15 @@ impl App {
                 }
                 SortColumn::State => {
                     let a_state_order = match a.state {
-                        PtpState::Leader => 0,
-                        PtpState::Follower => 1,
+                        PtpState::Transmitter => 0,
+                        PtpState::Receiver => 1,
                         PtpState::Passive => 2,
                         PtpState::Listening => 3,
                         _ => 4,
                     };
                     let b_state_order = match b.state {
-                        PtpState::Leader => 0,
-                        PtpState::Follower => 1,
+                        PtpState::Transmitter => 0,
+                        PtpState::Receiver => 1,
                         PtpState::Passive => 2,
                         PtpState::Listening => 3,
                         _ => 4,
@@ -751,10 +751,10 @@ impl App {
                 SortColumn::Domain => a.domain_number.cmp(&b.domain_number),
                 SortColumn::Priority => a.priority1.cmp(&b.priority1),
                 SortColumn::ClockClass => a.clock_class.cmp(&b.clock_class),
-                SortColumn::SelectedLeader => {
-                    let a_leader = a.selected_leader_id.as_deref().unwrap_or("");
-                    let b_leader = b.selected_leader_id.as_deref().unwrap_or("");
-                    a_leader.cmp(b_leader)
+                SortColumn::SelectedTransmitter => {
+                    let a = a.selected_transmitter_id.as_deref().unwrap_or("");
+                    let b = b.selected_transmitter_id.as_deref().unwrap_or("");
+                    a.cmp(b)
                 }
                 SortColumn::MessageCount => a.total_message_count.cmp(&b.total_message_count),
                 SortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),

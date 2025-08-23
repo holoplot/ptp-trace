@@ -173,7 +173,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         (SortColumn::Domain, "Dom"),
         (SortColumn::Priority, "Pri"),
         (SortColumn::ClockClass, "CC"),
-        (SortColumn::SelectedLeader, "Selected Leader"),
+        (SortColumn::SelectedTransmitter, "Selected Transmitter"),
         (SortColumn::MessageCount, "Msgs"),
         (SortColumn::LastSeen, "Last Seen"),
     ];
@@ -225,24 +225,24 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                 Style::default()
             };
 
-            let (_selected_leader_display, selected_leader_cell) = host
-                .selected_leader_id
+            let (_selected_transmitter_display, selected_transmitter_cell) = host
+                .selected_transmitter_id
                 .as_ref()
                 .map(|id| {
                     // Add confidence indicator based on relationship quality
                     let (confidence_symbol, confidence_color) =
-                        match host.selected_leader_confidence {
+                        match host.selected_transmitter_confidence {
                             conf if conf >= 0.9 => (
                                 " ✓",
-                                theme.get_confidence_color(host.selected_leader_confidence),
+                                theme.get_confidence_color(host.selected_transmitter_confidence),
                             ), // High confidence
                             conf if conf >= 0.7 => (
                                 " ~",
-                                theme.get_confidence_color(host.selected_leader_confidence),
+                                theme.get_confidence_color(host.selected_transmitter_confidence),
                             ), // Good confidence
                             conf if conf >= 0.4 => (
                                 " ?",
-                                theme.get_confidence_color(host.selected_leader_confidence),
+                                theme.get_confidence_color(host.selected_transmitter_confidence),
                             ), // Medium confidence
                             _ => ("", theme.text_primary), // Low/no confidence
                         };
@@ -281,7 +281,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(host.domain_number.to_string()),
                 Cell::from(host.priority1.to_string()),
                 Cell::from(host.clock_class.to_string()),
-                selected_leader_cell,
+                selected_transmitter_cell,
                 Cell::from(host.total_message_count.to_string()),
                 Cell::from(last_seen_str),
             ])
@@ -322,27 +322,28 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                     Style::default()
                 };
 
-                let (_selected_leader_display, selected_leader_cell) = host
-                    .selected_leader_id
+                let (_selected_transmitter_display, selected_transmitter_cell) = host
+                    .selected_transmitter_id
                     .as_ref()
                     .map(|id| {
                         // Add confidence indicator based on relationship quality
-                        let (confidence_symbol, confidence_color) =
-                            match host.selected_leader_confidence {
-                                conf if conf >= 0.9 => (
-                                    " ✓",
-                                    theme.get_confidence_color(host.selected_leader_confidence),
-                                ), // High confidence
-                                conf if conf >= 0.7 => (
-                                    " ~",
-                                    theme.get_confidence_color(host.selected_leader_confidence),
-                                ), // Good confidence
-                                conf if conf >= 0.4 => (
-                                    " ?",
-                                    theme.get_confidence_color(host.selected_leader_confidence),
-                                ), // Medium confidence
-                                _ => ("", theme.text_primary), // Low/no confidence
-                            };
+                        let (confidence_symbol, confidence_color) = match host
+                            .selected_transmitter_confidence
+                        {
+                            conf if conf >= 0.9 => (
+                                " ✓",
+                                theme.get_confidence_color(host.selected_transmitter_confidence),
+                            ), // High confidence
+                            conf if conf >= 0.7 => (
+                                " ~",
+                                theme.get_confidence_color(host.selected_transmitter_confidence),
+                            ), // Good confidence
+                            conf if conf >= 0.4 => (
+                                " ?",
+                                theme.get_confidence_color(host.selected_transmitter_confidence),
+                            ), // Medium confidence
+                            _ => ("", theme.text_primary), // Low/no confidence
+                        };
 
                         let cell = Cell::from(Line::from(vec![
                             Span::styled(id.clone(), Style::default().fg(theme.text_primary)),
@@ -370,7 +371,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                     Cell::from(host.domain_number.to_string()),
                     Cell::from(host.priority1.to_string()),
                     Cell::from(host.clock_class.to_string()),
-                    selected_leader_cell,
+                    selected_transmitter_cell,
                     Cell::from(host.total_message_count.to_string()),
                     Cell::from(last_seen_str),
                 ])
@@ -388,7 +389,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(3),  // Domain
         Constraint::Length(3),  // Priority
         Constraint::Length(3),  // Clock Class
-        Constraint::Length(25), // Selected Leader
+        Constraint::Length(25), // Selected Transmitter
         Constraint::Length(5),  // Message Count
         Constraint::Length(10), // Last Seen
     ];
@@ -459,8 +460,8 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
     let theme = &app.theme;
     let hosts = app.get_hosts();
     let total_hosts = hosts.len();
-    let leader_count = app.ptp_tracker.get_leader_count();
-    let follower_count = app.ptp_tracker.get_follower_count();
+    let transmitter_count = app.ptp_tracker.get_transmitter_count();
+    let receiver_count = app.ptp_tracker.get_receiver_count();
 
     // Define the width for label alignment in statistics
     const STATS_LABEL_WIDTH: usize = 13; // Width for "Total Hosts: "
@@ -473,24 +474,24 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
             theme,
         ),
         create_aligned_field_with_vendor(
-            "Leaders: ",
-            leader_count.to_string(),
+            "Transmitters: ",
+            transmitter_count.to_string(),
             String::new(),
             STATS_LABEL_WIDTH,
             theme,
-            theme.state_leader,
+            theme.state_transmitter,
         ),
         create_aligned_field_with_vendor(
-            "Followers: ",
-            follower_count.to_string(),
+            "Receivers: ",
+            receiver_count.to_string(),
             String::new(),
             STATS_LABEL_WIDTH,
             theme,
-            theme.state_follower,
+            theme.state_receiver,
         ),
         create_aligned_field(
             "Other: ",
-            (total_hosts - leader_count - follower_count).to_string(),
+            (total_hosts - transmitter_count - receiver_count).to_string(),
             STATS_LABEL_WIDTH,
             theme,
         ),
@@ -580,19 +581,19 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 theme,
             ),
             create_aligned_field_with_vendor(
-                "Selected Leader: ",
-                host.selected_leader_id
+                "Selected Transmitter: ",
+                host.selected_transmitter_id
                     .as_deref()
                     .unwrap_or("None")
                     .to_string(),
-                host.selected_leader_id
+                host.selected_transmitter_id
                     .as_deref()
                     .and_then(|id| get_vendor_by_clock_identity(id))
                     .map(|vendor| format!(" ({})", vendor))
                     .unwrap_or_default(),
                 LABEL_WIDTH,
                 theme,
-                theme.get_confidence_color(host.selected_leader_confidence),
+                theme.get_confidence_color(host.selected_transmitter_confidence),
             ),
             create_aligned_field(
                 "Last Seen: ",
@@ -731,12 +732,12 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from(vec![
-            Span::styled("  LEAD", Style::default().fg(Color::Green)),
-            Span::raw(" - PTP Leader (Grandmaster)"),
+            Span::styled("  TRAN", Style::default().fg(Color::Green)),
+            Span::raw(" - PTP Primary Transmitter"),
         ]),
         Line::from(vec![
-            Span::styled("  FOLL", Style::default().fg(Color::Blue)),
-            Span::raw(" - PTP Follower (Slave)"),
+            Span::styled("  R", Style::default().fg(Color::Blue)),
+            Span::raw(" - PTP Receiver"),
         ]),
         Line::from(vec![
             Span::styled("  LSTN", Style::default().fg(Color::Yellow)),
