@@ -763,7 +763,8 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from("  r          - Refresh/rescan network"),
-        Line::from("  c          - Clear hosts and packet history"),
+        Line::from("  c          - Clear all hosts and packet histories"),
+        Line::from("  x          - Clear packet history for selected host"),
         Line::from("  p          - Toggle pause mode"),
         Line::from("  s          - Cycle host table sorting"),
         Line::from("  a          - Previous sort column"),
@@ -898,7 +899,13 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         content_height.min(8).saturating_sub(1) // Limit to 8 rows when not expanded
     };
 
-    // Create title with packet count and expansion status
+    // Create title with packet count, selected host info, and expansion status
+    let selected_host_info = if let Some(ref host_id) = app.selected_host_id {
+        format!("[{}]", &host_id[..host_id.len().min(23)]) // Truncate long clock IDs
+    } else {
+        "[No host selected]".to_string()
+    };
+
     let title = if total_packets > 0 {
         let display_count = visible_packets.min(total_packets);
         let expanded_status = if app.is_packet_history_expanded() {
@@ -907,8 +914,8 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
             ""
         };
         format!(
-            "Packet History ({}/{}) - 'e' to toggle expand{}",
-            display_count, total_packets, expanded_status
+            "Packet History {} ({}/{}) - 'e' to toggle expand{}",
+            selected_host_info, display_count, total_packets, expanded_status
         )
     } else {
         let expanded_status = if app.is_packet_history_expanded() {
@@ -917,8 +924,8 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
             ""
         };
         format!(
-            "Packet History (No packets yet) - 'e' to toggle expand{}",
-            expanded_status
+            "Packet History{} (No packets yet) - 'e' to toggle expand{}",
+            selected_host_info, expanded_status
         )
     };
 
@@ -929,12 +936,16 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         .style(Style::default().bg(theme.background));
 
     if packets.is_empty() {
-        let no_packets_text =
-            Paragraph::new("No packets captured yet. Packets will appear here as they arrive.")
-                .style(Style::default().fg(theme.text_primary).bg(theme.background))
-                .block(block)
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: true });
+        let message = if app.selected_host_id.is_none() {
+            "Select a host to view its packet history."
+        } else {
+            "No packets captured yet for this host. Packets will appear here as they arrive."
+        };
+        let no_packets_text = Paragraph::new(message)
+            .style(Style::default().fg(theme.text_primary).bg(theme.background))
+            .block(block)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
         f.render_widget(no_packets_text, area);
         return;
     }

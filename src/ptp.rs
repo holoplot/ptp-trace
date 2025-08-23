@@ -1,3 +1,4 @@
+use crate::app::PacketInfo;
 use crate::oui_map::lookup_vendor_bytes;
 use anyhow::Result;
 use std::{
@@ -50,6 +51,7 @@ pub struct PtpHost {
     pub followup_origin_timestamp: Option<[u8; 10]>,
     pub last_version: Option<u8>,
     pub last_correction_field: Option<i64>,
+    pub packet_history: Vec<PacketInfo>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -242,6 +244,7 @@ impl PtpHost {
             followup_origin_timestamp: None,
             last_version: None,
             last_correction_field: None,
+            packet_history: Vec::new(),
         }
     }
 
@@ -573,6 +576,23 @@ impl PtpHost {
             }
             None => "N/A".to_string(),
         }
+    }
+
+    pub fn add_packet(&mut self, packet: PacketInfo, max_history: usize) {
+        self.packet_history.push(packet);
+
+        // Limit packet history size
+        if self.packet_history.len() > max_history {
+            self.packet_history.remove(0);
+        }
+    }
+
+    pub fn get_packet_history(&self) -> &[PacketInfo] {
+        &self.packet_history
+    }
+
+    pub fn clear_packet_history(&mut self) {
+        self.packet_history.clear();
     }
 }
 
@@ -2095,5 +2115,34 @@ impl PtpTracker {
         }
 
         result
+    }
+
+    pub fn add_packet_to_host(
+        &mut self,
+        clock_identity: &str,
+        packet: PacketInfo,
+        max_history: usize,
+    ) {
+        if let Some(host) = self.hosts.get_mut(clock_identity) {
+            host.add_packet(packet, max_history);
+        }
+    }
+
+    pub fn get_host_packet_history(&self, clock_identity: &str) -> Option<&[PacketInfo]> {
+        self.hosts
+            .get(clock_identity)
+            .map(|host| host.get_packet_history())
+    }
+
+    pub fn clear_host_packet_history(&mut self, clock_identity: &str) {
+        if let Some(host) = self.hosts.get_mut(clock_identity) {
+            host.clear_packet_history();
+        }
+    }
+
+    pub fn clear_all_packet_histories(&mut self) {
+        for host in self.hosts.values_mut() {
+            host.clear_packet_history();
+        }
     }
 }

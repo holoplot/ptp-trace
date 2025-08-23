@@ -118,7 +118,6 @@ pub struct App {
     pub show_help: bool,
     pub theme: crate::themes::Theme,
 
-    pub packet_history: Vec<PacketInfo>,
     pub packet_scroll_offset: usize,
     pub max_packet_history: usize,
     pub packet_history_expanded: bool,
@@ -152,7 +151,6 @@ impl App {
             visible_height: 20,
             show_help: false,
             theme,
-            packet_history: Vec::new(),
             packet_scroll_offset: 0,
             max_packet_history: 1000,
             packet_history_expanded: false,
@@ -255,7 +253,7 @@ impl App {
             }
             KeyCode::Char('c') => {
                 self.ptp_tracker.clear_hosts();
-                self.clear_packet_history();
+                self.ptp_tracker.clear_all_packet_histories();
                 self.selected_index = 0;
                 self.selected_host_id = None;
             }
@@ -304,6 +302,9 @@ impl App {
                 // Restore selection in the new view mode
                 self.restore_host_selection();
             }
+            KeyCode::Char('x') => {
+                self.clear_packet_history();
+            }
 
             _ => {
                 // Other keys - no action needed
@@ -320,7 +321,7 @@ impl App {
 
         let processed_packets = self.ptp_tracker.scan_network().await?;
 
-        // Add packets to history
+        // Add packets to individual host histories
         for packet in processed_packets {
             let packet_info = PacketInfo {
                 timestamp: packet.timestamp,
@@ -330,14 +331,18 @@ impl App {
                 version: packet.version,
                 message_type: packet.message_type,
                 message_length: packet.message_length,
-                clock_identity: packet.clock_identity,
+                clock_identity: packet.clock_identity.clone(),
                 domain_number: packet.domain_number,
                 sequence_id: packet.sequence_id,
                 flags: packet.flags,
                 correction_field: packet.correction_field,
                 log_message_interval: packet.log_message_interval,
             };
-            self.add_packet(packet_info);
+            self.ptp_tracker.add_packet_to_host(
+                &packet.clock_identity,
+                packet_info,
+                self.max_packet_history,
+            );
         }
 
         // Restore host selection to maintain stability when list changes
@@ -356,14 +361,16 @@ impl App {
 
         if total_hosts > 0 && self.selected_index > 0 {
             self.selected_index -= 1;
-            // Update stored host ID
+            // Update stored host ID and reset packet scroll
             if self.tree_view_enabled {
                 if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
                     self.selected_host_id = Some(h_host.host.clock_identity.clone());
+                    self.packet_scroll_offset = 0;
                 }
             } else {
                 if let Some(host) = self.get_hosts().get(self.selected_index) {
                     self.selected_host_id = Some(host.clock_identity.clone());
+                    self.packet_scroll_offset = 0;
                 }
             }
             // Scroll up immediately if we're at the top of the visible area
@@ -382,14 +389,16 @@ impl App {
 
         if total_hosts > 0 && self.selected_index < total_hosts - 1 {
             self.selected_index += 1;
-            // Update stored host ID
+            // Update stored host ID and reset packet scroll
             if self.tree_view_enabled {
                 if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
                     self.selected_host_id = Some(h_host.host.clock_identity.clone());
+                    self.packet_scroll_offset = 0;
                 }
             } else {
                 if let Some(host) = self.get_hosts().get(self.selected_index) {
                     self.selected_host_id = Some(host.clock_identity.clone());
+                    self.packet_scroll_offset = 0;
                 }
             }
             // Scroll down immediately if we're at the bottom of the visible area
@@ -477,10 +486,12 @@ impl App {
         if self.tree_view_enabled {
             if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
                 self.selected_host_id = Some(h_host.host.clock_identity.clone());
+                self.packet_scroll_offset = 0;
             }
         } else {
             if let Some(host) = self.get_hosts().get(self.selected_index) {
                 self.selected_host_id = Some(host.clock_identity.clone());
+                self.packet_scroll_offset = 0;
             }
         }
         // Adjust scroll to keep selection in view
@@ -508,10 +519,12 @@ impl App {
         if self.tree_view_enabled {
             if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
                 self.selected_host_id = Some(h_host.host.clock_identity.clone());
+                self.packet_scroll_offset = 0;
             }
         } else {
             if let Some(host) = self.get_hosts().get(self.selected_index) {
                 self.selected_host_id = Some(host.clock_identity.clone());
+                self.packet_scroll_offset = 0;
             }
         }
 
@@ -538,10 +551,12 @@ impl App {
         if self.tree_view_enabled {
             if let Some(h_host) = self.get_hierarchical_hosts().get(0) {
                 self.selected_host_id = Some(h_host.host.clock_identity.clone());
+                self.packet_scroll_offset = 0;
             }
         } else {
             if let Some(host) = self.get_hosts().get(0) {
                 self.selected_host_id = Some(host.clock_identity.clone());
+                self.packet_scroll_offset = 0;
             }
         }
     }
@@ -559,10 +574,12 @@ impl App {
             if self.tree_view_enabled {
                 if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
                     self.selected_host_id = Some(h_host.host.clock_identity.clone());
+                    self.packet_scroll_offset = 0;
                 }
             } else {
                 if let Some(host) = self.get_hosts().get(self.selected_index) {
                     self.selected_host_id = Some(host.clock_identity.clone());
+                    self.packet_scroll_offset = 0;
                 }
             }
             // Scroll to show the bottom, with selected item at the bottom of visible area
@@ -786,17 +803,16 @@ impl App {
         self.sort_ascending
     }
 
-    pub fn add_packet(&mut self, packet: PacketInfo) {
-        self.packet_history.push(packet);
-
-        // Limit packet history size
-        if self.packet_history.len() > self.max_packet_history {
-            self.packet_history.remove(0);
-        }
-    }
-
     pub fn get_packet_history(&self) -> &[PacketInfo] {
-        &self.packet_history
+        // Return packets from the currently selected host
+        if let Some(ref selected_host_id) = self.selected_host_id {
+            if let Some(history) = self.ptp_tracker.get_host_packet_history(selected_host_id) {
+                return history;
+            }
+        }
+
+        // If no host is selected or host not found, return empty slice
+        &[]
     }
 
     pub fn get_packet_scroll_offset(&self) -> usize {
@@ -902,7 +918,12 @@ impl App {
     }
 
     pub fn clear_packet_history(&mut self) {
-        self.packet_history.clear();
+        if let Some(ref selected_host_id) = self.selected_host_id {
+            self.ptp_tracker.clear_host_packet_history(selected_host_id);
+        } else {
+            // If no host is selected, clear all histories
+            self.ptp_tracker.clear_all_packet_histories();
+        }
     }
 
     pub fn toggle_auto_scroll(&mut self) {
