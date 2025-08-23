@@ -582,7 +582,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             create_aligned_field_with_vendor(
                 "State: ",
                 {
-                    let mut state_display = host.state.to_string();
+                    let mut state_display = host.state.full_name().to_string();
                     // Add PT marker for primary time transmitter based on BMCA
                     if let Some(primary_transmitter) = app
                         .ptp_tracker

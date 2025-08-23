@@ -89,6 +89,23 @@ impl std::fmt::Display for PtpState {
     }
 }
 
+impl PtpState {
+    pub fn full_name(&self) -> &'static str {
+        match self {
+            PtpState::Initializing => "Initializing",
+            PtpState::Listening => "Listening",
+            PtpState::PreTransmitter => "Pre-Transmitter",
+            PtpState::Transmitter => "Transmitter",
+            PtpState::Passive => "Passive",
+            PtpState::Uncalibrated => "Uncalibrated",
+            PtpState::Receiver => "Receiver",
+            PtpState::Faulty => "Faulty",
+            PtpState::Disabled => "Disabled",
+            PtpState::Unknown => "Unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PtpMessageType {
     Sync = 0x0,
