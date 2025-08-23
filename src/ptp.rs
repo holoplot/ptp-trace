@@ -33,6 +33,9 @@ pub struct PtpHost {
     pub sync_count: u32,
     pub delay_req_count: u32,
     pub delay_resp_count: u32,
+    pub pdelay_req_count: u32,
+    pub pdelay_resp_count: u32,
+    pub pdelay_resp_follow_up_count: u32,
     pub total_message_count: u32,
 
     pub state: PtpState,
@@ -86,15 +89,15 @@ impl std::fmt::Display for PtpState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PtpMessageType {
     Sync = 0x0,
-    DelayReq = 0x1,
-    PDelayReq = 0x2,
-    PDelayResp = 0x3,
+    DelayReq = 0x1,   // End-to-end delay request (transmitter-receiver mode)
+    PDelayReq = 0x2,  // Peer delay request (peer-to-peer mode)
+    PDelayResp = 0x3, // Peer delay response (peer-to-peer mode)
     FollowUp = 0x8,
-    DelayResp = 0x9,
-    PDelayRespFollowUp = 0xa,
+    DelayResp = 0x9,          // End-to-end delay response (transmitter-receiver mode)
+    PDelayRespFollowUp = 0xa, // Peer delay response follow-up (peer-to-peer mode)
     Announce = 0xb,
     Signaling = 0xc,
     Management = 0xd,
@@ -157,6 +160,24 @@ pub struct FollowUpMessage {
     pub precise_origin_timestamp: [u8; 10],
 }
 
+pub struct PDelayReqMessage {
+    pub _header: PtpHeader,
+    pub origin_timestamp: [u8; 10],
+    pub reserved: [u8; 10], // Reserved field
+}
+
+pub struct PDelayRespMessage {
+    pub _header: PtpHeader,
+    pub request_receipt_timestamp: [u8; 10],
+    pub requesting_port_identity: [u8; 10], // Port identity of requester
+}
+
+pub struct PDelayRespFollowUpMessage {
+    pub _header: PtpHeader,
+    pub response_origin_timestamp: [u8; 10],
+    pub requesting_port_identity: [u8; 10], // Port identity of requester
+}
+
 impl PtpHost {
     pub fn new(clock_identity: String, ip_address: IpAddr, port: u16, interface: String) -> Self {
         let now = Instant::now();
@@ -187,6 +208,9 @@ impl PtpHost {
             sync_count: 0,
             delay_req_count: 0,
             delay_resp_count: 0,
+            pdelay_req_count: 0,
+            pdelay_resp_count: 0,
+            pdelay_resp_follow_up_count: 0,
             total_message_count: 0,
 
             state: PtpState::Listening,
@@ -948,6 +972,37 @@ impl PtpTracker {
             None
         };
 
+        let pdelay_req_msg = if header.message_type == PtpMessageType::PDelayReq {
+            match header.version {
+                1 => None, // PTPv1 doesn't have PDelay messages
+                2 => self.parse_pdelay_req_message(data).ok(),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let pdelay_resp_msg = if header.message_type == PtpMessageType::PDelayResp {
+            match header.version {
+                1 => None, // PTPv1 doesn't have PDelay messages
+                2 => self.parse_pdelay_resp_message(data).ok(),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let pdelay_resp_followup_msg = if header.message_type == PtpMessageType::PDelayRespFollowUp
+        {
+            match header.version {
+                1 => None, // PTPv1 doesn't have PDelay messages
+                2 => self.parse_pdelay_resp_followup_message(data).ok(),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
         // Get or create host entry
         let host = self.hosts.entry(clock_id.clone()).or_insert_with(|| {
             PtpHost::new(
@@ -1065,6 +1120,56 @@ impl PtpTracker {
                 if host.announce_count == 0 {
                     host.state = PtpState::Transmitter;
                     host.selected_transmitter_id = None; // Transmitters don't receive from anyone
+                }
+            }
+            PtpMessageType::PDelayReq => {
+                host.pdelay_req_count += 1;
+                host.total_message_count += 1;
+                // PDelay requests are used for peer-to-peer delay measurement
+                // In P2P mode, each node measures delay with its neighbors directly
+                // This doesn't indicate transmitter-receiver hierarchy like DelayReq does
+                if let Some(_pdelay_req) = pdelay_req_msg {
+                    // Could extract timing information if needed for analysis
+                }
+
+                if host.announce_count == 0 {
+                    // If we haven't seen announce messages, we can't determine if this is a transmitter or receiver
+                    // Keep current state or set to listening
+                    if host.state == PtpState::Unknown {
+                        host.state = PtpState::Listening;
+                    }
+                }
+            }
+            PtpMessageType::PDelayResp => {
+                host.pdelay_resp_count += 1;
+                host.total_message_count += 1;
+                // PDelay responses are sent in response to PDelay requests
+                // These contain receive and transmit timestamps for delay calculation
+                // Like PDelayReq, they don't indicate transmitter-receiver relationship
+                if let Some(_pdelay_resp) = pdelay_resp_msg {
+                    // Could extract timing information and requesting port identity if needed
+                }
+
+                if host.announce_count == 0 {
+                    if host.state == PtpState::Unknown {
+                        host.state = PtpState::Listening;
+                    }
+                }
+            }
+            PtpMessageType::PDelayRespFollowUp => {
+                host.pdelay_resp_follow_up_count += 1;
+                host.total_message_count += 1;
+                // PDelay response follow-up messages provide precise transmit timestamps
+                // for peer delay measurements in two-step mode. This completes the
+                // peer delay measurement cycle: PDelayReq -> PDelayResp -> PDelayRespFollowUp
+                if let Some(_pdelay_resp_followup) = pdelay_resp_followup_msg {
+                    // Could extract precise timing information if needed
+                }
+
+                if host.announce_count == 0 {
+                    if host.state == PtpState::Unknown {
+                        host.state = PtpState::Listening;
+                    }
                 }
             }
             PtpMessageType::FollowUp => {
@@ -1242,6 +1347,96 @@ impl PtpTracker {
         Ok(FollowUpMessage {
             _header: header,
             precise_origin_timestamp,
+        })
+    }
+
+    fn parse_pdelay_req_message(&self, data: &[u8]) -> Result<PDelayReqMessage> {
+        if data.len() < 54 {
+            // 34 (header) + 20 (pdelay req content) = 54 minimum
+            return Err(anyhow::anyhow!(
+                "Packet too short for PDelay Request message"
+            ));
+        }
+
+        let header = self.parse_ptp_header(data)?;
+
+        // Parse PDelay Request specific fields starting at byte 34
+        let pdelay_data = &data[34..];
+
+        if pdelay_data.len() < 20 {
+            return Err(anyhow::anyhow!("PDelay Request data too short"));
+        }
+
+        let mut origin_timestamp = [0u8; 10];
+        origin_timestamp.copy_from_slice(&pdelay_data[0..10]);
+
+        let mut reserved = [0u8; 10];
+        reserved.copy_from_slice(&pdelay_data[10..20]);
+
+        Ok(PDelayReqMessage {
+            _header: header,
+            origin_timestamp,
+            reserved,
+        })
+    }
+
+    fn parse_pdelay_resp_message(&self, data: &[u8]) -> Result<PDelayRespMessage> {
+        if data.len() < 54 {
+            // 34 (header) + 20 (pdelay resp content) = 54 minimum
+            return Err(anyhow::anyhow!(
+                "Packet too short for PDelay Response message"
+            ));
+        }
+
+        let header = self.parse_ptp_header(data)?;
+
+        // Parse PDelay Response specific fields starting at byte 34
+        let pdelay_data = &data[34..];
+
+        if pdelay_data.len() < 20 {
+            return Err(anyhow::anyhow!("PDelay Response data too short"));
+        }
+
+        let mut request_receipt_timestamp = [0u8; 10];
+        request_receipt_timestamp.copy_from_slice(&pdelay_data[0..10]);
+
+        let mut requesting_port_identity = [0u8; 10];
+        requesting_port_identity.copy_from_slice(&pdelay_data[10..20]);
+
+        Ok(PDelayRespMessage {
+            _header: header,
+            request_receipt_timestamp,
+            requesting_port_identity,
+        })
+    }
+
+    fn parse_pdelay_resp_followup_message(&self, data: &[u8]) -> Result<PDelayRespFollowUpMessage> {
+        if data.len() < 54 {
+            // 34 (header) + 20 (pdelay resp follow-up content) = 54 minimum
+            return Err(anyhow::anyhow!(
+                "Packet too short for PDelay Response Follow-Up message"
+            ));
+        }
+
+        let header = self.parse_ptp_header(data)?;
+
+        // Parse PDelay Response Follow-Up specific fields starting at byte 34
+        let pdelay_data = &data[34..];
+
+        if pdelay_data.len() < 20 {
+            return Err(anyhow::anyhow!("PDelay Response Follow-Up data too short"));
+        }
+
+        let mut response_origin_timestamp = [0u8; 10];
+        response_origin_timestamp.copy_from_slice(&pdelay_data[0..10]);
+
+        let mut requesting_port_identity = [0u8; 10];
+        requesting_port_identity.copy_from_slice(&pdelay_data[10..20]);
+
+        Ok(PDelayRespFollowUpMessage {
+            _header: header,
+            response_origin_timestamp,
+            requesting_port_identity,
         })
     }
 

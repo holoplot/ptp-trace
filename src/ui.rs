@@ -652,6 +652,24 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 LABEL_WIDTH,
                 theme,
             ),
+            create_aligned_field(
+                "  PDelay Req: ",
+                host.pdelay_req_count.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field(
+                "  PDelay Resp: ",
+                host.pdelay_resp_count.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
+            create_aligned_field(
+                "  PDelay Resp FU: ",
+                host.pdelay_resp_follow_up_count.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ),
         ]);
 
         details_text
@@ -936,6 +954,15 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 }
                 crate::ptp::PtpMessageType::DelayResp => {
                     ("DELAY_RESP", Style::default().fg(Color::Cyan))
+                }
+                crate::ptp::PtpMessageType::PDelayReq => {
+                    ("PDELAY_REQ", Style::default().fg(Color::LightYellow))
+                }
+                crate::ptp::PtpMessageType::PDelayResp => {
+                    ("PDELAY_RESP", Style::default().fg(Color::LightCyan))
+                }
+                crate::ptp::PtpMessageType::PDelayRespFollowUp => {
+                    ("PDELAY_RESP_FU", Style::default().fg(Color::LightMagenta))
                 }
                 crate::ptp::PtpMessageType::FollowUp => {
                     ("FOLLOW_UP", Style::default().fg(Color::Magenta))

@@ -32,8 +32,8 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 - 🔍 OUI database integration to show vendor information
 
 ### 📦 **Packet Analysis**
-- 📋 Real-time packet history
-- 🎨 Color-coded message types (ANNOUNCE, SYNC, DELAY_REQ, etc.)
+- 📋 Real-time packet history with version identification
+- 🎨 Color-coded message types (ANNOUNCE, SYNC, DELAY_REQ, PDELAY_REQ, etc.)
 
 ## Demo
 
