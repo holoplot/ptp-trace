@@ -275,7 +275,20 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
             };
 
             Row::new(vec![
-                Cell::from(host.state.to_string()).style(Style::default().fg(state_color)),
+                Cell::from({
+                    let mut state_display = host.state.to_string();
+                    // Add PT marker for primary time transmitter based on BMCA
+                    if let Some(primary_transmitter) = app
+                        .ptp_tracker
+                        .get_primary_time_transmitter_for_domain(host.domain_number)
+                    {
+                        if host.clock_identity == primary_transmitter.clock_identity {
+                            state_display = "PT".to_string();
+                        }
+                    }
+                    state_display
+                })
+                .style(Style::default().fg(state_color)),
                 Cell::from(clock_identity_display),
                 Cell::from(ip_display),
                 Cell::from(host.domain_number.to_string()),
@@ -365,7 +378,20 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                 };
 
                 Row::new(vec![
-                    Cell::from(host.state.to_string()).style(Style::default().fg(state_color)),
+                    Cell::from({
+                        let mut state_display = host.state.to_string();
+                        // Add PT marker for primary time transmitter based on BMCA
+                        if let Some(primary_transmitter) = app
+                            .ptp_tracker
+                            .get_primary_time_transmitter_for_domain(host.domain_number)
+                        {
+                            if host.clock_identity == primary_transmitter.clock_identity {
+                                state_display = "PT".to_string()
+                            }
+                        }
+                        state_display
+                    })
+                    .style(Style::default().fg(state_color)),
                     Cell::from(host.clock_identity.clone()),
                     Cell::from(ip_display),
                     Cell::from(host.domain_number.to_string()),
@@ -464,7 +490,7 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
     let receiver_count = app.ptp_tracker.get_receiver_count();
 
     // Define the width for label alignment in statistics
-    const STATS_LABEL_WIDTH: usize = 13; // Width for "Total Hosts: "
+    const STATS_LABEL_WIDTH: usize = 15; // Width for "Total Hosts: "
 
     let stats_text = vec![
         create_aligned_field(
@@ -555,7 +581,19 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             create_aligned_field("Version: ", host.get_version_string(), LABEL_WIDTH, theme),
             create_aligned_field_with_vendor(
                 "State: ",
-                host.state.to_string(),
+                {
+                    let mut state_display = host.state.to_string();
+                    // Add PT marker for primary time transmitter based on BMCA
+                    if let Some(primary_transmitter) = app
+                        .ptp_tracker
+                        .get_primary_time_transmitter_for_domain(host.domain_number)
+                    {
+                        if host.clock_identity == primary_transmitter.clock_identity {
+                            state_display = format!("{} (Primary)", state_display);
+                        }
+                    }
+                    state_display
+                },
                 String::new(),
                 LABEL_WIDTH,
                 theme,

@@ -240,6 +240,24 @@ impl PtpHost {
         matches!(self.state, PtpState::Receiver)
     }
 
+    /// Calculate BMCA comparison value for this clock
+    /// Returns a tuple for easy comparison: (priority1, clock_class, clock_accuracy, offset_scaled_log_variance, priority2, clock_identity)
+    pub fn bmca_comparison_data(&self) -> (u8, u8, u8, u16, u8, String) {
+        (
+            self.primary_transmitter_priority1,
+            self.primary_transmitter_clock_class,
+            self.primary_transmitter_clock_accuracy,
+            self.primary_transmitter_scaled_log_variance,
+            self.primary_transmitter_priority2,
+            self.primary_transmitter_identity.clone(),
+        )
+    }
+
+    /// Check if this clock should be considered for BMCA (has valid announce data)
+    pub fn is_bmca_eligible(&self) -> bool {
+        self.announce_count > 0 && !self.primary_transmitter_identity.is_empty()
+    }
+
     pub fn get_vendor_name(&self) -> Option<&'static str> {
         get_vendor_by_clock_identity(&self.clock_identity)
     }
@@ -774,6 +792,483 @@ mod tests {
         host.update_correction_field(-750);
         assert_eq!(host.last_correction_field, Some(-750));
         assert_eq!(host.get_correction_field_string(), "-750");
+    }
+
+    #[test]
+    fn test_bmca_comparison_data() {
+        let host = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:77".to_string(),
+            128,  // priority1
+            6,    // clock_class
+            0x20, // accuracy
+            100,  // variance
+            64,   // priority2
+        );
+
+        let comparison_data = host.bmca_comparison_data();
+        assert_eq!(comparison_data.0, 128); // priority1
+        assert_eq!(comparison_data.1, 6); // clock_class
+        assert_eq!(comparison_data.2, 0x20); // accuracy
+        assert_eq!(comparison_data.3, 100); // variance
+        assert_eq!(comparison_data.4, 64); // priority2
+        assert_eq!(comparison_data.5, "00:11:22:33:44:55:66:77"); // clock_identity
+    }
+
+    #[test]
+    fn test_bmca_eligibility() {
+        // Host without announce messages should not be eligible
+        let mut host = PtpHost::new(
+            "00:11:22:33:44:55:66:77".to_string(),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
+            319,
+            "eth0".to_string(),
+        );
+        assert!(!host.is_bmca_eligible());
+
+        // Host with announce messages should be eligible
+        host.announce_count = 1;
+        host.primary_transmitter_identity = "00:11:22:33:44:55:66:77".to_string();
+        assert!(host.is_bmca_eligible());
+
+        // Host with empty primary_transmitter_identity should not be eligible
+        host.primary_transmitter_identity = String::new();
+        assert!(!host.is_bmca_eligible());
+    }
+
+    #[test]
+    fn test_bmca_priority1_comparison() {
+        let mut tracker = create_test_tracker();
+
+        // Add host with lower priority1 (better)
+        let host1 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:01".to_string(),
+            64,     // priority1 - better
+            248,    // clock_class
+            0xFE,   // accuracy
+            0xFFFF, // variance
+            128,    // priority2
+        );
+        tracker.hosts.insert(host1.clock_identity.clone(), host1);
+
+        // Add host with higher priority1 (worse)
+        let host2 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:02".to_string(),
+            128,  // priority1 - worse
+            6,    // clock_class - better, but shouldn't matter
+            0x20, // accuracy - better, but shouldn't matter
+            100,  // variance - better, but shouldn't matter
+            64,   // priority2 - better, but shouldn't matter
+        );
+        tracker.hosts.insert(host2.clock_identity.clone(), host2);
+
+        let best_master = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_master, Some("00:11:22:33:44:55:66:01".to_string()));
+    }
+
+    #[test]
+    fn test_bmca_clock_class_comparison() {
+        let mut tracker = create_test_tracker();
+
+        // Add two hosts with same priority1, different clock_class
+        let host1 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:01".to_string(),
+            128,    // priority1
+            6,      // clock_class - better
+            0xFE,   // accuracy
+            0xFFFF, // variance
+            128,    // priority2
+        );
+        tracker.hosts.insert(host1.clock_identity.clone(), host1);
+
+        let host2 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:02".to_string(),
+            128,  // priority1 - same
+            248,  // clock_class - worse
+            0x20, // accuracy - better, but shouldn't matter
+            100,  // variance - better, but shouldn't matter
+            64,   // priority2 - better, but shouldn't matter
+        );
+        tracker.hosts.insert(host2.clock_identity.clone(), host2);
+
+        let best_master = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_master, Some("00:11:22:33:44:55:66:01".to_string()));
+    }
+
+    #[test]
+    fn test_bmca_accuracy_comparison() {
+        let mut tracker = create_test_tracker();
+
+        // Add two hosts with same priority1 and clock_class, different accuracy
+        let host1 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:01".to_string(),
+            128,    // priority1
+            248,    // clock_class
+            0x20,   // accuracy - better
+            0xFFFF, // variance
+            128,    // priority2
+        );
+        tracker.hosts.insert(host1.clock_identity.clone(), host1);
+
+        let host2 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:02".to_string(),
+            128,  // priority1 - same
+            248,  // clock_class - same
+            0xFE, // accuracy - worse
+            100,  // variance - better, but shouldn't matter
+            64,   // priority2 - better, but shouldn't matter
+        );
+        tracker.hosts.insert(host2.clock_identity.clone(), host2);
+
+        let best_master = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_master, Some("00:11:22:33:44:55:66:01".to_string()));
+    }
+
+    #[test]
+    fn test_bmca_variance_comparison() {
+        let mut tracker = create_test_tracker();
+
+        // Add two hosts with same priority1, clock_class, and accuracy, different variance
+        let host1 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:01".to_string(),
+            128,  // priority1
+            248,  // clock_class
+            0xFE, // accuracy
+            100,  // variance - better (lower)
+            128,  // priority2
+        );
+        tracker.hosts.insert(host1.clock_identity.clone(), host1);
+
+        let host2 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:02".to_string(),
+            128,    // priority1 - same
+            248,    // clock_class - same
+            0xFE,   // accuracy - same
+            0xFFFF, // variance - worse (higher)
+            64,     // priority2 - better, but shouldn't matter
+        );
+        tracker.hosts.insert(host2.clock_identity.clone(), host2);
+
+        let best_master = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_master, Some("00:11:22:33:44:55:66:01".to_string()));
+    }
+
+    #[test]
+    fn test_bmca_priority2_comparison() {
+        let mut tracker = create_test_tracker();
+
+        // Add two hosts with same priority1, clock_class, accuracy, and variance, different priority2
+        let host1 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:01".to_string(),
+            128,    // priority1
+            248,    // clock_class
+            0xFE,   // accuracy
+            0xFFFF, // variance
+            64,     // priority2 - better (lower)
+        );
+        tracker.hosts.insert(host1.clock_identity.clone(), host1);
+
+        let host2 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:02".to_string(),
+            128,    // priority1 - same
+            248,    // clock_class - same
+            0xFE,   // accuracy - same
+            0xFFFF, // variance - same
+            128,    // priority2 - worse (higher)
+        );
+        tracker.hosts.insert(host2.clock_identity.clone(), host2);
+
+        let best_master = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_master, Some("00:11:22:33:44:55:66:01".to_string()));
+    }
+
+    #[test]
+    fn test_bmca_clock_identity_tiebreaker() {
+        let mut tracker = create_test_tracker();
+
+        // Add two hosts with identical BMCA parameters, different clock identities
+        let host1 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:77".to_string(), // lexicographically higher
+            128,                                   // priority1
+            248,                                   // clock_class
+            0xFE,                                  // accuracy
+            0xFFFF,                                // variance
+            128,                                   // priority2
+        );
+        tracker.hosts.insert(host1.clock_identity.clone(), host1);
+
+        let host2 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:11".to_string(), // lexicographically lower (better)
+            128,                                   // priority1 - same
+            248,                                   // clock_class - same
+            0xFE,                                  // accuracy - same
+            0xFFFF,                                // variance - same
+            128,                                   // priority2 - same
+        );
+        tracker.hosts.insert(host2.clock_identity.clone(), host2);
+
+        let best_master = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_master, Some("00:11:22:33:44:55:66:11".to_string()));
+    }
+
+    #[test]
+    fn test_bmca_no_eligible_hosts() {
+        let tracker = create_test_tracker(); // Empty tracker
+        let best_master = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_master, None);
+
+        let mut tracker = create_test_tracker();
+        // Add host without announce messages
+        let host = PtpHost::new(
+            "00:11:22:33:44:55:66:77".to_string(),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
+            319,
+            "eth0".to_string(),
+        );
+        tracker.hosts.insert(host.clock_identity.clone(), host);
+
+        let best_master = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_master, None);
+    }
+
+    #[test]
+    fn test_bmca_complete_scenario() {
+        let mut tracker = create_test_tracker();
+
+        // GPS-synchronized grandmaster (best)
+        let gps_master = create_test_host_with_announce_data(
+            "00:aa:bb:cc:dd:ee:ff:01".to_string(),
+            64,   // priority1 - high priority
+            6,    // clock_class - GPS synchronized
+            0x20, // accuracy - good
+            100,  // variance - stable
+            64,   // priority2
+        );
+        tracker
+            .hosts
+            .insert(gps_master.clock_identity.clone(), gps_master);
+
+        // Default PTP device (medium quality)
+        let default_device = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:02".to_string(),
+            128,    // priority1 - default
+            248,    // clock_class - default
+            0xFE,   // accuracy - default
+            0xFFFF, // variance - default
+            128,    // priority2 - default
+        );
+        tracker
+            .hosts
+            .insert(default_device.clock_identity.clone(), default_device);
+
+        // Manual high priority device
+        let manual_priority = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:03".to_string(),
+            32,     // priority1 - manually set high priority (should win)
+            248,    // clock_class - default
+            0xFE,   // accuracy - default
+            0xFFFF, // variance - default
+            128,    // priority2 - default
+        );
+        tracker
+            .hosts
+            .insert(manual_priority.clock_identity.clone(), manual_priority);
+
+        let best_master = tracker.run_bmca_for_domain(0);
+        // Manual priority should win due to lowest priority1 value
+        assert_eq!(best_master, Some("00:11:22:33:44:55:66:03".to_string()));
+    }
+
+    #[test]
+    fn test_get_primary_time_transmitter() {
+        let mut tracker = create_test_tracker();
+
+        let host = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:77".to_string(),
+            128,
+            248,
+            0xFE,
+            0xFFFF,
+            128,
+        );
+        tracker.hosts.insert(host.clock_identity.clone(), host);
+
+        let primary_transmitter = tracker.get_primary_time_transmitter_for_domain(0);
+        assert!(primary_transmitter.is_some());
+        assert_eq!(
+            primary_transmitter.unwrap().clock_identity,
+            "00:11:22:33:44:55:66:77"
+        );
+    }
+
+    #[test]
+    fn test_bmca_multiple_domains() {
+        let mut tracker = create_test_tracker();
+
+        // Create hosts in different domains
+        let mut host_domain_0 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:01".to_string(),
+            50,   // priority1
+            6,    // clock_class
+            32,   // clock_accuracy
+            1000, // variance
+            128,  // priority2
+        );
+        host_domain_0.domain_number = 0;
+
+        let mut host_domain_1 = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:02".to_string(),
+            60,   // higher priority1 (worse)
+            6,    // clock_class
+            32,   // clock_accuracy
+            1000, // variance
+            128,  // priority2
+        );
+        host_domain_1.domain_number = 1;
+
+        let mut host_domain_0_better = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:03".to_string(),
+            40,   // lower priority1 (better)
+            6,    // clock_class
+            32,   // clock_accuracy
+            1000, // variance
+            128,  // priority2
+        );
+        host_domain_0_better.domain_number = 0;
+
+        tracker
+            .hosts
+            .insert(host_domain_0.clock_identity.clone(), host_domain_0);
+        tracker
+            .hosts
+            .insert(host_domain_1.clock_identity.clone(), host_domain_1);
+        tracker.hosts.insert(
+            host_domain_0_better.clock_identity.clone(),
+            host_domain_0_better,
+        );
+
+        // Run BMCA for domain 0 - should select the better host (lower priority1)
+        let best_domain_0 = tracker.run_bmca_for_domain(0);
+        assert_eq!(best_domain_0, Some("00:11:22:33:44:55:66:03".to_string()));
+
+        // Run BMCA for domain 1 - should select the only host in that domain
+        let best_domain_1 = tracker.run_bmca_for_domain(1);
+        assert_eq!(best_domain_1, Some("00:11:22:33:44:55:66:02".to_string()));
+
+        // Run BMCA for non-existent domain
+        let best_domain_2 = tracker.run_bmca_for_domain(2);
+        assert_eq!(best_domain_2, None);
+
+        // Test get_all_primary_time_transmitters
+        let all_pts = tracker.get_all_primary_time_transmitters();
+        assert_eq!(all_pts.len(), 2);
+        assert!(all_pts.contains_key(&0));
+        assert!(all_pts.contains_key(&1));
+        assert_eq!(
+            all_pts.get(&0).unwrap().clock_identity,
+            "00:11:22:33:44:55:66:03"
+        );
+        assert_eq!(
+            all_pts.get(&1).unwrap().clock_identity,
+            "00:11:22:33:44:55:66:02"
+        );
+    }
+
+    #[test]
+    fn test_bmca_determines_primary_time_transmitter() {
+        let mut tracker = create_test_tracker();
+
+        // Create a host that would be primary based on BMCA
+        let mut host = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:77".to_string(),
+            50,   // priority1
+            6,    // clock_class
+            32,   // clock_accuracy
+            1000, // variance
+            128,  // priority2
+        );
+        host.state = PtpState::Transmitter;
+        host.steps_removed = 0;
+
+        tracker.hosts.insert(host.clock_identity.clone(), host);
+
+        // BMCA should select this host as primary time transmitter
+        let primary_transmitter = tracker.get_primary_time_transmitter_for_domain(0);
+        assert!(primary_transmitter.is_some());
+        assert_eq!(
+            primary_transmitter.unwrap().clock_identity,
+            "00:11:22:33:44:55:66:77"
+        );
+
+        // Add a better host (lower priority1)
+        let better_host = create_test_host_with_announce_data(
+            "00:11:22:33:44:55:66:88".to_string(),
+            40,   // lower priority1 = better
+            6,    // clock_class
+            32,   // clock_accuracy
+            1000, // variance
+            128,  // priority2
+        );
+
+        tracker
+            .hosts
+            .insert(better_host.clock_identity.clone(), better_host);
+
+        // BMCA should now select the better host
+        let primary_transmitter = tracker.get_primary_time_transmitter_for_domain(0);
+        assert!(primary_transmitter.is_some());
+        assert_eq!(
+            primary_transmitter.unwrap().clock_identity,
+            "00:11:22:33:44:55:66:88"
+        );
+    }
+    // Helper functions for tests
+    fn create_test_tracker() -> PtpTracker {
+        use std::net::SocketAddr;
+        use tokio::net::UdpSocket;
+
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let (event_socket, general_socket) = rt.block_on(async {
+            let event_socket = UdpSocket::bind(addr).await.unwrap();
+            let general_socket = UdpSocket::bind(addr).await.unwrap();
+            (event_socket, general_socket)
+        });
+
+        PtpTracker::new(
+            event_socket,
+            general_socket,
+            vec![("eth0".to_string(), std::net::Ipv4Addr::new(192, 168, 1, 1))],
+        )
+        .unwrap()
+    }
+
+    fn create_test_host_with_announce_data(
+        clock_identity: String,
+        priority1: u8,
+        clock_class: u8,
+        accuracy: u8,
+        variance: u16,
+        priority2: u8,
+    ) -> PtpHost {
+        let mut host = PtpHost::new(
+            clock_identity.clone(),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
+            319,
+            "eth0".to_string(),
+        );
+
+        // Set announce message data to make host BMCA-eligible
+        host.announce_count = 1;
+        host.primary_transmitter_identity = clock_identity;
+        host.primary_transmitter_priority1 = priority1;
+        host.primary_transmitter_clock_class = clock_class;
+        host.primary_transmitter_clock_accuracy = accuracy;
+        host.primary_transmitter_scaled_log_variance = variance;
+        host.primary_transmitter_priority2 = priority2;
+        host.state = PtpState::Transmitter;
+
+        host
     }
 }
 
@@ -1483,5 +1978,105 @@ impl PtpTracker {
 
     pub fn get_last_packet_age(&self) -> Duration {
         Instant::now().duration_since(self.last_packet)
+    }
+
+    /// Run BMCA to find the primary time transmitter for each domain
+    /// Returns a map of domain number to best master clock identity
+    pub fn run_bmca(&self) -> HashMap<u8, String> {
+        use std::collections::HashMap;
+
+        let mut domain_results = HashMap::new();
+
+        // Group hosts by domain number
+        let mut domains: HashMap<u8, Vec<&PtpHost>> = HashMap::new();
+        for host in self.hosts.values().filter(|host| host.is_bmca_eligible()) {
+            domains
+                .entry(host.domain_number)
+                .or_insert_with(Vec::new)
+                .push(host);
+        }
+
+        // Run BMCA for each domain separately
+        for (domain_number, mut eligible_clocks) in domains {
+            if eligible_clocks.is_empty() {
+                continue;
+            }
+
+            // Sort according to BMCA criteria (IEEE 1588-2019)
+            eligible_clocks.sort_by(|a, b| {
+                let a_data = a.bmca_comparison_data();
+                let b_data = b.bmca_comparison_data();
+
+                // Compare priority1 (lower is better)
+                match a_data.0.cmp(&b_data.0) {
+                    std::cmp::Ordering::Equal => {
+                        // Compare clock class (lower is better)
+                        match a_data.1.cmp(&b_data.1) {
+                            std::cmp::Ordering::Equal => {
+                                // Compare clock accuracy (lower is better)
+                                match a_data.2.cmp(&b_data.2) {
+                                    std::cmp::Ordering::Equal => {
+                                        // Compare offset scaled log variance (lower is better - stability)
+                                        match a_data.3.cmp(&b_data.3) {
+                                            std::cmp::Ordering::Equal => {
+                                                // Compare priority2 (lower is better)
+                                                match a_data.4.cmp(&b_data.4) {
+                                                    std::cmp::Ordering::Equal => {
+                                                        // Final tiebreaker: clock identity (lexicographically lower is better)
+                                                        a_data.5.cmp(&b_data.5)
+                                                    }
+                                                    other => other,
+                                                }
+                                            }
+                                            other => other,
+                                        }
+                                    }
+                                    other => other,
+                                }
+                            }
+                            other => other,
+                        }
+                    }
+                    other => other,
+                }
+            });
+
+            // Store the best master clock for this domain
+            if let Some(best_master) = eligible_clocks.first() {
+                domain_results.insert(domain_number, best_master.clock_identity.clone());
+            }
+        }
+
+        domain_results
+    }
+
+    /// Run BMCA for a specific domain only
+    /// Returns the clock identity of the best master clock for the domain, or None if no eligible clocks
+    pub fn run_bmca_for_domain(&self, domain_number: u8) -> Option<String> {
+        let results = self.run_bmca();
+        results.get(&domain_number).cloned()
+    }
+
+    /// Get the primary time transmitter host (best master clock) for a specific domain
+    pub fn get_primary_time_transmitter_for_domain(&self, domain_number: u8) -> Option<&PtpHost> {
+        if let Some(best_master_id) = self.run_bmca_for_domain(domain_number) {
+            self.hosts.get(&best_master_id)
+        } else {
+            None
+        }
+    }
+
+    /// Get all primary time transmitters across all domains
+    pub fn get_all_primary_time_transmitters(&self) -> HashMap<u8, &PtpHost> {
+        let mut result = HashMap::new();
+        let bmca_results = self.run_bmca();
+
+        for (domain_number, best_master_id) in bmca_results {
+            if let Some(host) = self.hosts.get(&best_master_id) {
+                result.insert(domain_number, host);
+            }
+        }
+
+        result
     }
 }

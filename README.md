@@ -19,6 +19,8 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 - 🔍 Automatic PTP host discovery on port 319 and 320
 - 📡 Real-time packet capture and analysis
 - 🏷️ Host classification by PTP state
+- 🏆 **BMCA (Best Master Clock Algorithm)** - Automatic primary time transmitter detection
+- 📊 Primary Time Transmitter marked with "PT" indicator
 - 📈 Network statistics and quality metrics
 - 🕐 Timing relationship tracking
 - 🌳 Visual hierarchy mapping of transmitter-receiver relationships
