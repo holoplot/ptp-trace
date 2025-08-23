@@ -913,8 +913,4 @@ impl App {
     pub fn is_packet_history_expanded(&self) -> bool {
         self.packet_history_expanded
     }
-
-    pub fn is_paused(&self) -> bool {
-        self.paused
-    }
 }
