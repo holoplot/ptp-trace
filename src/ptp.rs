@@ -313,6 +313,10 @@ impl PtpHost {
         self.ip_addresses.len()
     }
 
+    pub fn has_local_ip(&self, local_ips: &[std::net::IpAddr]) -> bool {
+        self.ip_addresses.keys().any(|ip| local_ips.contains(ip))
+    }
+
     pub fn update_version(&mut self, version: u8) {
         self.last_version = Some(version);
     }
@@ -1317,6 +1321,52 @@ mod tests {
         host.state = PtpState::Transmitter;
 
         host
+    }
+
+    #[test]
+    fn test_local_ip_detection() {
+        use std::net::{IpAddr, Ipv4Addr};
+
+        // Define IP addresses first
+        let local_ip1 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
+        let local_ip2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50));
+        let remote_ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10));
+
+        let mut host = PtpHost::new(
+            "a0:bb:3e:ff:fe:20:12:da".to_string(),
+            local_ip1,
+            319,
+            "eth0".to_string(),
+        );
+
+        // Note: local_ip1 is already added by constructor, add remote_ip instead
+        host.add_ip_address(remote_ip, "eth1".to_string());
+
+        // Create local IPs list (simulating what get_local_ips() returns)
+        let local_ips = vec![local_ip1, local_ip2];
+
+        // Test that host with local IP is detected
+        assert!(host.has_local_ip(&local_ips));
+
+        // Test host with only remote IPs
+        let remote_host = PtpHost::new(
+            "b0:cc:4e:ff:fe:30:23:eb".to_string(),
+            remote_ip,
+            319,
+            "eth1".to_string(),
+        );
+        // Note: remote_ip is already added by constructor
+        assert!(!remote_host.has_local_ip(&local_ips));
+
+        // Test truly empty host (no IPs)
+        let mut truly_empty_host = PtpHost::new(
+            "c0:dd:5f:ff:fe:40:34:fc".to_string(),
+            remote_ip,
+            319,
+            "eth0".to_string(),
+        );
+        truly_empty_host.ip_addresses.clear();
+        assert!(!truly_empty_host.has_local_ip(&local_ips));
     }
 }
 
@@ -2349,5 +2399,12 @@ impl PtpTracker {
         for host in self.hosts.values_mut() {
             host.clear_packet_history();
         }
+    }
+
+    pub fn get_local_ips(&self) -> Vec<std::net::IpAddr> {
+        self.interfaces
+            .iter()
+            .map(|(_, ip)| std::net::IpAddr::V4(*ip))
+            .collect()
     }
 }

@@ -165,6 +165,9 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     let selected_index = app.get_selected_index();
     let updated_scroll_offset = app.get_host_scroll_offset();
 
+    // Get local IPs for comparison
+    let local_ips = app.ptp_tracker.get_local_ips();
+
     let sort_column = app.get_sort_column();
     let headers = [
         (SortColumn::State, "State"),
@@ -286,6 +289,10 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                             state_display = "PT".to_string();
                         }
                     }
+                    // Add asterisk if this host has any local IPs
+                    if host.has_local_ip(&local_ips) {
+                        state_display = format!("{} *", state_display);
+                    }
                     state_display
                 })
                 .style(Style::default().fg(state_color)),
@@ -388,6 +395,10 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                             if host.clock_identity == primary_transmitter.clock_identity {
                                 state_display = "PT".to_string()
                             }
+                        }
+                        // Add asterisk if this host has any local IPs
+                        if host.has_local_ip(&local_ips) {
+                            state_display = format!("{}*", state_display);
                         }
                         state_display
                     })
@@ -549,6 +560,8 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
     let selected_index = app.get_selected_index();
 
     let details_text = if let Some(host) = hosts.get(selected_index) {
+        // Get local IPs for comparison
+        let local_ips = app.ptp_tracker.get_local_ips();
         // Define the width for label alignment
         const LABEL_WIDTH: usize = 22; // Width for "Follow-Up Timestamp: "
 
@@ -568,9 +581,14 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
 
         // Add IP addresses with interface info - each on its own row with "IP Address:" label
         for (ip, interface) in host.ip_addresses.iter() {
+            let ip_display = if local_ips.contains(ip) {
+                format!("{} ({}) *", ip, interface)
+            } else {
+                format!("{} ({})", ip, interface)
+            };
             details_text.push(create_aligned_field(
                 "IP Address: ",
-                format!("{} ({})", ip, interface),
+                ip_display,
                 LABEL_WIDTH,
                 theme,
             ));
@@ -792,6 +810,10 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from(vec![
             Span::styled("  FALT", Style::default().fg(Color::Red)),
             Span::raw(" - Faulty state"),
+        ]),
+        Line::from(vec![
+            Span::styled("  *", Style::default().fg(Color::Yellow)),
+            Span::raw(" - Local machine (your own host)"),
         ]),
     ];
 
@@ -1040,7 +1062,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(5),  // Sequence
         Constraint::Length(6),  // Flags
         Constraint::Length(12), // Correction
-        Constraint::Length(11), // Log Interval
+        Constraint::Length(13), // Log Interval
         Constraint::Length(60), // Details
     ];
 

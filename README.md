@@ -32,6 +32,7 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 - 🎯 Selection tracking across operations
 - 📊 Quality indicators and confidence levels
 - 🔍 OUI database integration to show vendor information
+- ⭐ Local machine identification: Your own machine is marked with asterisks (*) in the host list and details
 
 ### 📦 **Packet Analysis**
 - 📋 Real-time packet history with version identification
