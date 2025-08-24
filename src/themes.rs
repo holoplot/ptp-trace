@@ -74,33 +74,33 @@ impl Theme {
     fn default_theme() -> Self {
         Self {
             // PTP State colors
-            state_transmitter: Color::Green,
-            state_receiver: Color::Blue,
-            state_listening: Color::Yellow,
-            state_passive: Color::Magenta,
-            state_faulty: Color::Red,
-            state_disabled: Color::Gray,
-            state_unknown: Color::White,
+            state_transmitter: Color::Rgb(46, 204, 113), // Emerald green
+            state_receiver: Color::Rgb(52, 152, 219),    // Dodger blue
+            state_listening: Color::Rgb(241, 196, 15),   // Sun flower yellow
+            state_passive: Color::Rgb(155, 89, 182),     // Amethyst purple
+            state_faulty: Color::Rgb(231, 76, 60),       // Alizarin red
+            state_disabled: Color::Rgb(149, 165, 166),   // Concrete gray
+            state_unknown: Color::Rgb(236, 240, 241),    // Clouds white
 
             // UI element colors
-            header_fg: Color::White,
-            header_bg: Color::Black,
-            border_normal: Color::White,
-            border_focused: Color::Green,
-            text_primary: Color::White,
-            text_secondary: Color::Yellow,
-            text_accent: Color::Green,
-            vendor_text: Color::Cyan,
-            background: Color::Black,
+            header_fg: Color::Rgb(236, 240, 241), // Clouds white
+            header_bg: Color::Rgb(0, 0, 0),       // Midnight blue
+            border_normal: Color::Rgb(149, 165, 166), // Concrete gray
+            border_focused: Color::Rgb(46, 204, 113), // Emerald green
+            text_primary: Color::Rgb(236, 240, 241), // Clouds white
+            text_secondary: Color::Rgb(189, 195, 199), // Silver
+            text_accent: Color::Rgb(46, 204, 113), // Emerald green
+            vendor_text: Color::Rgb(26, 188, 156), // Turquoise
+            background: Color::Rgb(0, 0, 0),      // Midnight blue
 
             // Table colors
-            table_header: Color::Yellow,
-            sort_column_active: Color::Green,
+            table_header: Color::Rgb(52, 152, 219), // Dodger blue
+            sort_column_active: Color::Rgb(46, 204, 113), // Emerald green
 
             // Status indicators
-            confidence_high: Color::Green,
-            confidence_medium: Color::Yellow,
-            confidence_low: Color::Red,
+            confidence_high: Color::Rgb(46, 204, 113), // Emerald green
+            confidence_medium: Color::Rgb(241, 196, 15), // Sun flower yellow
+            confidence_low: Color::Rgb(231, 76, 60),   // Alizarin red
         }
     }
 
