@@ -104,6 +104,7 @@ pub struct PacketInfo {
     pub flags: [u8; 2],
     pub correction_field: i64,
     pub log_message_interval: i8,
+    pub details: Option<String>,
 }
 
 pub struct App {
@@ -337,6 +338,7 @@ impl App {
                 flags: packet.flags,
                 correction_field: packet.correction_field,
                 log_message_interval: packet.log_message_interval,
+                details: packet.details,
             };
             self.ptp_tracker.add_packet_to_host(
                 &packet.clock_identity,

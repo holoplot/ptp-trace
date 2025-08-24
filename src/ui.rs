@@ -679,32 +679,17 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             ),
             create_aligned_field("  Sync: ", host.sync_count.to_string(), LABEL_WIDTH, theme),
             create_aligned_field(
-                "  Delay Req: ",
-                host.delay_req_count.to_string(),
+                "  Delay Req/Resp: ",
+                format!("{}/{}", host.delay_req_count, host.delay_resp_count),
                 LABEL_WIDTH,
                 theme,
             ),
             create_aligned_field(
-                "  Delay Resp: ",
-                host.delay_resp_count.to_string(),
-                LABEL_WIDTH,
-                theme,
-            ),
-            create_aligned_field(
-                "  PDelay Req: ",
-                host.pdelay_req_count.to_string(),
-                LABEL_WIDTH,
-                theme,
-            ),
-            create_aligned_field(
-                "  PDelay Resp: ",
-                host.pdelay_resp_count.to_string(),
-                LABEL_WIDTH,
-                theme,
-            ),
-            create_aligned_field(
-                "  PDelay Resp FU: ",
-                host.pdelay_resp_follow_up_count.to_string(),
+                "  PDelay Req/Resp/FU: ",
+                format!(
+                    "{}/{}/{}",
+                    host.pdelay_req_count, host.pdelay_resp_count, host.pdelay_resp_follow_up_count
+                ),
                 LABEL_WIDTH,
                 theme,
             ),
@@ -965,6 +950,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from("Flags"),
         Cell::from("Correction"),
         Cell::from("Log Interval"),
+        Cell::from("Details"),
     ])
     .style(
         Style::default()
@@ -1036,6 +1022,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(format!("{:02x}{:02x}", packet.flags[0], packet.flags[1])),
                 Cell::from(packet.correction_field.to_string()),
                 Cell::from(packet.log_message_interval.to_string()),
+                Cell::from(packet.details.clone().unwrap_or_else(|| "-".to_string())),
             ])
         })
         .collect();
@@ -1053,7 +1040,8 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(5),  // Sequence
         Constraint::Length(6),  // Flags
         Constraint::Length(12), // Correction
-        Constraint::Length(10), // Log Interval
+        Constraint::Length(11), // Log Interval
+        Constraint::Length(60), // Details
     ];
 
     let table = Table::new(rows, widths)
