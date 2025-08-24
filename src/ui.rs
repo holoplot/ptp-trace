@@ -105,7 +105,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
         header_spans.push(Span::styled(
             " [PAUSED]",
             Style::default()
-                .fg(Color::Red)
+                .fg(theme.text_accent)
                 .add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK),
         ));
     }
@@ -222,7 +222,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
 
             let style = if actual_i == selected_index {
                 Style::default()
-                    .bg(Color::DarkGray)
+                    .bg(theme.selected_row_background)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -336,7 +336,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
 
                 let style = if actual_i == selected_index {
                     Style::default()
-                        .bg(Color::DarkGray)
+                        .bg(theme.selected_row_background)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
@@ -740,18 +740,17 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
 fn render_help(f: &mut Frame, area: Rect, app: &App) {
     let theme = &app.theme;
     let help_text = vec![
-        Line::from(""),
         Line::from(vec![Span::styled(
             "PTP Network Tracer Help",
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.text_accent)
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Navigation:",
             Style::default()
-                .fg(Color::Green)
+                .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from("  ↑/k        - Move selection up"),
@@ -762,7 +761,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from(vec![Span::styled(
             "Actions:",
             Style::default()
-                .fg(Color::Green)
+                .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from("  r          - Refresh/rescan network"),
@@ -779,7 +778,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from(vec![Span::styled(
             "General:",
             Style::default()
-                .fg(Color::Green)
+                .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from("  h/F1       - Show/hide this help"),
@@ -788,32 +787,66 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from(vec![Span::styled(
             "Legend:",
             Style::default()
-                .fg(Color::Green)
+                .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from(vec![
-            Span::styled("  TRAN", Style::default().fg(Color::Green)),
-            Span::raw(" - PTP Primary Transmitter"),
+            Span::styled(
+                format!("  {}", crate::ptp::PtpState::Transmitter),
+                Style::default().fg(theme.get_state_color(&crate::ptp::PtpState::Transmitter)),
+            ),
+            Span::raw(format!(
+                "  - {}",
+                crate::ptp::PtpState::Transmitter.full_name()
+            )),
         ]),
         Line::from(vec![
-            Span::styled("  R", Style::default().fg(Color::Blue)),
-            Span::raw(" - PTP Receiver"),
+            Span::styled(
+                "  PT",
+                Style::default().fg(theme.get_state_color(&crate::ptp::PtpState::Transmitter)),
+            ),
+            Span::raw(format!(
+                " - {} (Primary)",
+                crate::ptp::PtpState::Transmitter.full_name()
+            )),
         ]),
         Line::from(vec![
-            Span::styled("  LSTN", Style::default().fg(Color::Yellow)),
-            Span::raw(" - Listening state"),
+            Span::styled(
+                format!("  {}", crate::ptp::PtpState::Receiver),
+                Style::default().fg(theme.get_state_color(&crate::ptp::PtpState::Receiver)),
+            ),
+            Span::raw(format!(
+                "  - {}",
+                crate::ptp::PtpState::Receiver.full_name()
+            )),
         ]),
         Line::from(vec![
-            Span::styled("  PASV", Style::default().fg(Color::Magenta)),
-            Span::raw(" - Passive state"),
+            Span::styled(
+                format!("  {}", crate::ptp::PtpState::Listening),
+                Style::default().fg(theme.get_state_color(&crate::ptp::PtpState::Listening)),
+            ),
+            Span::raw(format!(
+                "  - {}",
+                crate::ptp::PtpState::Listening.full_name()
+            )),
         ]),
         Line::from(vec![
-            Span::styled("  FALT", Style::default().fg(Color::Red)),
-            Span::raw(" - Faulty state"),
+            Span::styled(
+                format!("  {}", crate::ptp::PtpState::Passive),
+                Style::default().fg(theme.get_state_color(&crate::ptp::PtpState::Passive)),
+            ),
+            Span::raw(format!("  - {}", crate::ptp::PtpState::Passive.full_name())),
         ]),
         Line::from(vec![
-            Span::styled("  *", Style::default().fg(Color::Yellow)),
-            Span::raw(" - Local machine (your own host)"),
+            Span::styled(
+                format!("  {}", crate::ptp::PtpState::Faulty),
+                Style::default().fg(theme.get_state_color(&crate::ptp::PtpState::Faulty)),
+            ),
+            Span::raw(format!("  - {}", crate::ptp::PtpState::Faulty.full_name())),
+        ]),
+        Line::from(vec![
+            Span::styled("  *", Style::default().fg(theme.text_primary)),
+            Span::raw("  - Local machine (your own host)"),
         ]),
     ];
 
@@ -976,7 +1009,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     ])
     .style(
         Style::default()
-            .fg(Color::Yellow)
+            .fg(theme.table_header)
             .add_modifier(Modifier::BOLD),
     );
 
@@ -1001,32 +1034,6 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 )
             };
 
-            let (type_str, type_style) = match packet.message_type {
-                crate::ptp::PtpMessageType::Announce => {
-                    ("ANNOUNCE", Style::default().fg(Color::Green))
-                }
-                crate::ptp::PtpMessageType::Sync => ("SYNC", Style::default().fg(Color::Blue)),
-                crate::ptp::PtpMessageType::DelayReq => {
-                    ("DELAY_REQ", Style::default().fg(Color::Yellow))
-                }
-                crate::ptp::PtpMessageType::DelayResp => {
-                    ("DELAY_RESP", Style::default().fg(Color::Cyan))
-                }
-                crate::ptp::PtpMessageType::PDelayReq => {
-                    ("PDELAY_REQ", Style::default().fg(Color::LightYellow))
-                }
-                crate::ptp::PtpMessageType::PDelayResp => {
-                    ("PDELAY_RESP", Style::default().fg(Color::LightCyan))
-                }
-                crate::ptp::PtpMessageType::PDelayRespFollowUp => {
-                    ("PDELAY_RESP_FU", Style::default().fg(Color::LightMagenta))
-                }
-                crate::ptp::PtpMessageType::FollowUp => {
-                    ("FOLLOW_UP", Style::default().fg(Color::Magenta))
-                }
-                _ => ("OTHER", Style::default().fg(Color::Gray)),
-            };
-
             // Truncate clock identity for better display
             let clock_display = packet.clock_identity.clone();
 
@@ -1036,7 +1043,10 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(packet.source_port.to_string()),
                 Cell::from(packet.interface.clone()),
                 Cell::from(format!("v{}", packet.version)),
-                Cell::from(Span::styled(type_str, type_style)),
+                Cell::from(Span::styled(
+                    packet.message_type.to_string(),
+                    theme.get_message_type_color(&packet.message_type),
+                )),
                 Cell::from(packet.message_length.to_string()),
                 Cell::from(clock_display),
                 Cell::from(packet.domain_number.to_string()),

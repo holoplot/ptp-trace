@@ -142,6 +142,23 @@ impl TryFrom<u8> for PtpMessageType {
     }
 }
 
+impl std::fmt::Display for PtpMessageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PtpMessageType::Sync => write!(f, "SYNC"),
+            PtpMessageType::DelayReq => write!(f, "DELAY_REQ"),
+            PtpMessageType::PDelayReq => write!(f, "PDELAY_REQ"),
+            PtpMessageType::PDelayResp => write!(f, "PDELAY_RESP"),
+            PtpMessageType::FollowUp => write!(f, "FOLLOW_UP"),
+            PtpMessageType::DelayResp => write!(f, "DELAY_RESP"),
+            PtpMessageType::PDelayRespFollowUp => write!(f, "PDELAY_RESP_FU"),
+            PtpMessageType::Announce => write!(f, "ANNOUNCE"),
+            PtpMessageType::Signaling => write!(f, "SIGNALING"),
+            PtpMessageType::Management => write!(f, "MANAGEMENT"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PtpHeader {
     pub message_type: PtpMessageType,

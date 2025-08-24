@@ -55,11 +55,22 @@ pub struct Theme {
     // Table colors
     pub table_header: Color,
     pub sort_column_active: Color,
+    pub selected_row_background: Color,
 
     // Status indicators
     pub confidence_high: Color,
     pub confidence_medium: Color,
     pub confidence_low: Color,
+
+    // Packet type colors
+    pub message_type_sync: Color,
+    pub message_type_follow_up: Color,
+    pub message_type_delay_req: Color,
+    pub message_type_delay_resp: Color,
+    pub message_type_pdelay_req: Color,
+    pub message_type_pdelay_resp: Color,
+    pub message_type_pdelay_resp_follow_up: Color,
+    pub message_type_unknown: Color,
 }
 
 impl Theme {
@@ -96,11 +107,22 @@ impl Theme {
             // Table colors
             table_header: Color::Rgb(52, 152, 219), // Dodger blue
             sort_column_active: Color::Rgb(46, 204, 113), // Emerald green
+            selected_row_background: Color::DarkGray,
 
             // Status indicators
             confidence_high: Color::Rgb(46, 204, 113), // Emerald green
             confidence_medium: Color::Rgb(241, 196, 15), // Sun flower yellow
             confidence_low: Color::Rgb(231, 76, 60),   // Alizarin red
+
+            // Packet type colors
+            message_type_sync: Color::Rgb(46, 204, 113), // Emerald green
+            message_type_follow_up: Color::Rgb(52, 152, 219), // Dodger blue
+            message_type_delay_req: Color::Rgb(241, 196, 15), // Sun flower yellow
+            message_type_delay_resp: Color::Rgb(155, 89, 182), // Amethyst purple
+            message_type_pdelay_req: Color::Rgb(231, 76, 60), // Alizarin red
+            message_type_pdelay_resp: Color::Rgb(149, 165, 166), // Concrete gray
+            message_type_pdelay_resp_follow_up: Color::Rgb(26, 188, 156), // Turquoise
+            message_type_unknown: Color::Rgb(236, 240, 241), // Clouds white
         }
     }
 
@@ -129,11 +151,22 @@ impl Theme {
             // Table colors
             table_header: Color::Rgb(253, 151, 31), // Monokai orange
             sort_column_active: Color::Rgb(166, 226, 46), // Monokai green
+            selected_row_background: Color::DarkGray,
 
             // Status indicators
             confidence_high: Color::Rgb(166, 226, 46), // Monokai green
             confidence_medium: Color::Rgb(253, 151, 31), // Monokai orange
             confidence_low: Color::Rgb(249, 38, 114),  // Monokai pink
+
+            // Packet type colors
+            message_type_sync: Color::Rgb(166, 226, 46), // Monokai green
+            message_type_follow_up: Color::Rgb(102, 217, 239), // Monokai cyan
+            message_type_delay_req: Color::Rgb(253, 151, 31), // Monokai orange
+            message_type_delay_resp: Color::Rgb(174, 129, 255), // Monokai purple
+            message_type_pdelay_req: Color::Rgb(249, 38, 114), // Monokai pink/red
+            message_type_pdelay_resp: Color::Rgb(117, 113, 94), // Monokai gray
+            message_type_pdelay_resp_follow_up: Color::Rgb(248, 248, 242), // Monokai white
+            message_type_unknown: Color::Rgb(248, 248, 242), // Monokai white
         }
     }
 
@@ -162,11 +195,22 @@ impl Theme {
             // Table colors
             table_header: Color::Rgb(0, 255, 65), // Bright matrix green
             sort_column_active: Color::Rgb(0, 255, 65), // Bright matrix green
+            selected_row_background: Color::DarkGray,
 
             // Status indicators
             confidence_high: Color::Rgb(0, 255, 65), // Bright matrix green
             confidence_medium: Color::Rgb(0, 200, 50), // Medium matrix green
             confidence_low: Color::Rgb(255, 0, 0),   // Matrix red
+
+            // Packet type colors
+            message_type_sync: Color::Rgb(0, 255, 65), // Bright matrix green
+            message_type_follow_up: Color::Rgb(0, 200, 50), // Medium matrix green
+            message_type_delay_req: Color::Rgb(0, 180, 40), // Matrix green variant
+            message_type_delay_resp: Color::Rgb(0, 150, 35), // Darker matrix green
+            message_type_pdelay_req: Color::Rgb(0, 255, 100), // Light matrix green
+            message_type_pdelay_resp: Color::Rgb(0, 120, 30), // Dark matrix green
+            message_type_pdelay_resp_follow_up: Color::Rgb(0, 220, 55), // Matrix green variant
+            message_type_unknown: Color::Rgb(0, 100, 25), // Very dark matrix green
         }
     }
 
@@ -180,6 +224,20 @@ impl Theme {
             PtpState::Faulty => self.state_faulty,
             PtpState::Disabled => self.state_disabled,
             _ => self.state_unknown,
+        }
+    }
+
+    pub fn get_message_type_color(&self, message_type: &crate::ptp::PtpMessageType) -> Color {
+        use crate::ptp::PtpMessageType;
+        match message_type {
+            PtpMessageType::Sync => self.message_type_sync,
+            PtpMessageType::FollowUp => self.message_type_follow_up,
+            PtpMessageType::DelayReq => self.message_type_delay_req,
+            PtpMessageType::DelayResp => self.message_type_delay_resp,
+            PtpMessageType::PDelayReq => self.message_type_pdelay_req,
+            PtpMessageType::PDelayResp => self.message_type_pdelay_resp,
+            PtpMessageType::PDelayRespFollowUp => self.message_type_pdelay_resp_follow_up,
+            _ => self.message_type_unknown,
         }
     }
 
