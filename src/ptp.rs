@@ -336,7 +336,11 @@ impl PtpHost {
 
     pub fn get_correction_field_string(&self) -> String {
         match self.last_correction_field {
-            Some(correction) => correction.to_string(),
+            Some(correction) => format!(
+                "{} ({:.2} ns)",
+                correction,
+                (correction as f64) / (1u64 << 16) as f64
+            ),
             None => "Unknown".to_string(),
         }
     }

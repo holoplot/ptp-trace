@@ -971,7 +971,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from("Seq"),
         Cell::from("Flags"),
         Cell::from("Correction"),
-        Cell::from("Log Interval"),
+        Cell::from("Interval"),
         Cell::from("Details"),
     ])
     .style(
@@ -1042,7 +1042,10 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(packet.domain_number.to_string()),
                 Cell::from(packet.sequence_id.to_string()),
                 Cell::from(format!("{:02x}{:02x}", packet.flags[0], packet.flags[1])),
-                Cell::from(packet.correction_field.to_string()),
+                Cell::from(format!(
+                    "{:.02} ns",
+                    (packet.correction_field as f64) / (1u64 << 16) as f64
+                )),
                 Cell::from(packet.log_message_interval.to_string()),
                 Cell::from(packet.details.clone().unwrap_or_else(|| "-".to_string())),
             ])
@@ -1062,7 +1065,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(5),  // Sequence
         Constraint::Length(6),  // Flags
         Constraint::Length(12), // Correction
-        Constraint::Length(13), // Log Interval
+        Constraint::Length(9),  // Log Interval
         Constraint::Length(60), // Details
     ];
 
