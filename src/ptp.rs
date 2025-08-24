@@ -1574,8 +1574,10 @@ impl PtpTracker {
         );
 
         // Determine inbound interface
-        let interface = crate::socket::get_interface_for_ip(&src_addr.ip(), &self.interfaces)
-            .unwrap_or_else(|| "unknown".to_string());
+        let interface = match crate::socket::get_interface_for_ip(&src_addr.ip(), &self.interfaces) {
+            Some(iface) => iface,
+            None => return Ok(None),
+        };
 
         // Create packet info for recording
         let mut packet_info = ProcessedPacket {
