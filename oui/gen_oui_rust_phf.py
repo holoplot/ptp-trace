@@ -6,7 +6,7 @@ Generate Rust phf::Map tables for MA-L (/24), MA-M (/28), MA-S (/36).
 - Emits only static PHF maps (no helpers).
 
 Usage:
-  python3 gen_oui_rust_phf.py > src/oui_map.rs
+  python3 gen_oui_rust_phf.py > ../src/oui_map.rs
 """
 
 import argparse
