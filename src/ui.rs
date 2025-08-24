@@ -371,7 +371,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                         ]));
                         (format!("{}{}", id, confidence_symbol), cell)
                     })
-                    .unwrap_or_else(|| ("-".to_string(), Cell::from("None")));
+                    .unwrap_or_else(|| ("-".to_string(), Cell::from("-")));
 
                 // Format IP address display with interface info
                 let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
