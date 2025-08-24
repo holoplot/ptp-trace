@@ -704,8 +704,11 @@ impl App {
                     a_state_order.cmp(&b_state_order)
                 }
                 SortColumn::Domain => a.domain_number.cmp(&b.domain_number),
-                SortColumn::Priority => a.priority1.cmp(&b.priority1),
-                SortColumn::ClockClass => a.clock_class.cmp(&b.clock_class),
+                SortColumn::Priority => a.priority1.unwrap_or(255).cmp(&b.priority1.unwrap_or(255)),
+                SortColumn::ClockClass => a
+                    .clock_class
+                    .unwrap_or(255)
+                    .cmp(&b.clock_class.unwrap_or(255)),
                 SortColumn::SelectedTransmitter => {
                     let a = a.selected_transmitter_id.as_deref().unwrap_or("");
                     let b = b.selected_transmitter_id.as_deref().unwrap_or("");
@@ -753,8 +756,11 @@ impl App {
                     a_state_order.cmp(&b_state_order)
                 }
                 SortColumn::Domain => a.domain_number.cmp(&b.domain_number),
-                SortColumn::Priority => a.priority1.cmp(&b.priority1),
-                SortColumn::ClockClass => a.clock_class.cmp(&b.clock_class),
+                SortColumn::Priority => a.priority1.unwrap_or(255).cmp(&b.priority1.unwrap_or(255)),
+                SortColumn::ClockClass => a
+                    .clock_class
+                    .unwrap_or(255)
+                    .cmp(&b.clock_class.unwrap_or(255)),
                 SortColumn::SelectedTransmitter => {
                     let a = a.selected_transmitter_id.as_deref().unwrap_or("");
                     let b = b.selected_transmitter_id.as_deref().unwrap_or("");

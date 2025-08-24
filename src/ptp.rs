@@ -16,19 +16,19 @@ pub struct PtpHost {
     pub ip_addresses: HashMap<IpAddr, String>,
     pub port: u16,
     pub domain_number: u8,
-    pub priority1: u8,
-    pub priority2: u8,
-    pub clock_class: u8,
-    pub clock_accuracy: u8,
-    pub offset_scaled_log_variance: u16,
-    pub steps_removed: u16,
-    pub time_source: u8,
-    pub primary_transmitter_identity: String,
-    pub primary_transmitter_priority1: u8,
-    pub primary_transmitter_priority2: u8,
-    pub primary_transmitter_clock_class: u8,
-    pub primary_transmitter_clock_accuracy: u8,
-    pub primary_transmitter_scaled_log_variance: u16,
+    pub priority1: Option<u8>,
+    pub priority2: Option<u8>,
+    pub clock_class: Option<u8>,
+    pub clock_accuracy: Option<u8>,
+    pub offset_scaled_log_variance: Option<u16>,
+    pub steps_removed: Option<u16>,
+    pub time_source: Option<u8>,
+    pub primary_transmitter_identity: Option<String>,
+    pub primary_transmitter_priority1: Option<u8>,
+    pub primary_transmitter_priority2: Option<u8>,
+    pub primary_transmitter_clock_class: Option<u8>,
+    pub primary_transmitter_clock_accuracy: Option<u8>,
+    pub primary_transmitter_scaled_log_variance: Option<u16>,
     pub last_seen: Instant,
     pub announce_count: u32,
     pub sync_count: u32,
@@ -237,19 +237,19 @@ impl PtpHost {
             },
             port,
             domain_number: 0,
-            priority1: 128,
-            priority2: 128,
-            clock_class: 248,
-            clock_accuracy: 0xFE,
-            offset_scaled_log_variance: 0xFFFF,
-            steps_removed: 0, // Initialize as potential transmitter
-            time_source: 0xA0,
-            primary_transmitter_identity: "00:00:00:00:00:00:00:00".to_string(),
-            primary_transmitter_priority1: 128,
-            primary_transmitter_priority2: 128,
-            primary_transmitter_clock_class: 248,
-            primary_transmitter_clock_accuracy: 0xFE,
-            primary_transmitter_scaled_log_variance: 0xFFFF,
+            priority1: None,
+            priority2: None,
+            clock_class: None,
+            clock_accuracy: None,
+            offset_scaled_log_variance: None,
+            steps_removed: None,
+            time_source: None,
+            primary_transmitter_identity: None,
+            primary_transmitter_priority1: None,
+            primary_transmitter_priority2: None,
+            primary_transmitter_clock_class: None,
+            primary_transmitter_clock_accuracy: None,
+            primary_transmitter_scaled_log_variance: None,
             last_seen: now,
             announce_count: 0,
             sync_count: 0,
@@ -292,18 +292,27 @@ impl PtpHost {
     /// Returns a tuple for easy comparison: (priority1, clock_class, clock_accuracy, offset_scaled_log_variance, priority2, clock_identity)
     pub fn bmca_comparison_data(&self) -> (u8, u8, u8, u16, u8, String) {
         (
-            self.primary_transmitter_priority1,
-            self.primary_transmitter_clock_class,
-            self.primary_transmitter_clock_accuracy,
-            self.primary_transmitter_scaled_log_variance,
-            self.primary_transmitter_priority2,
-            self.primary_transmitter_identity.clone(),
+            self.primary_transmitter_priority1.unwrap_or(255),
+            self.primary_transmitter_clock_class.unwrap_or(255),
+            self.primary_transmitter_clock_accuracy.unwrap_or(0xFE),
+            self.primary_transmitter_scaled_log_variance
+                .unwrap_or(0xFFFF),
+            self.primary_transmitter_priority2.unwrap_or(255),
+            self.primary_transmitter_identity
+                .as_deref()
+                .unwrap_or("00:00:00:00:00:00:00:00")
+                .to_string(),
         )
     }
 
     /// Check if this clock should be considered for BMCA (has valid announce data)
     pub fn is_bmca_eligible(&self) -> bool {
-        self.announce_count > 0 && !self.primary_transmitter_identity.is_empty()
+        self.announce_count > 0
+            && !self
+                .primary_transmitter_identity
+                .as_deref()
+                .unwrap_or("")
+                .is_empty()
     }
 
     pub fn get_vendor_name(&self) -> Option<&'static str> {
@@ -364,7 +373,7 @@ impl PtpHost {
 
     pub fn quality_indicator(&self) -> u8 {
         // Simple quality calculation based on clock class and steps removed
-        let base_quality: u8 = match self.clock_class {
+        let base_quality: u8 = match self.clock_class.unwrap_or(255) {
             0..=6 => 100,
             7..=51 => 90,
             52..=127 => 80,
@@ -377,23 +386,24 @@ impl PtpHost {
             253 => 10,
             _ => 0,
         };
-        base_quality.saturating_sub((self.steps_removed as u8).saturating_mul(5))
+        base_quality
+            .saturating_sub((self.steps_removed.unwrap_or(0) as u16).saturating_mul(5) as u8)
     }
 
     fn update_from_announce(&mut self, announce: &AnnounceMessage) {
         self.domain_number = announce.header.domain_number;
-        self.priority1 = announce.primary_transmitter_priority_1;
-        self.priority2 = announce.primary_transmitter_priority_2;
-        self.clock_class = announce.primary_transmitter_clock_quality[0];
-        self.clock_accuracy = announce.primary_transmitter_clock_quality[1];
-        self.offset_scaled_log_variance = u16::from_be_bytes([
+        self.priority1 = Some(announce.primary_transmitter_priority_1);
+        self.priority2 = Some(announce.primary_transmitter_priority_2);
+        self.clock_class = Some(announce.primary_transmitter_clock_quality[0]);
+        self.clock_accuracy = Some(announce.primary_transmitter_clock_quality[1]);
+        self.offset_scaled_log_variance = Some(u16::from_be_bytes([
             announce.primary_transmitter_clock_quality[2],
             announce.primary_transmitter_clock_quality[3],
-        ]);
-        self.steps_removed = announce.steps_removed;
-        self.time_source = announce.time_source;
+        ]));
+        self.steps_removed = Some(announce.steps_removed);
+        self.time_source = Some(announce.time_source);
 
-        self.primary_transmitter_identity = format!(
+        self.primary_transmitter_identity = Some(format!(
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             announce.primary_transmitter_identity[0],
             announce.primary_transmitter_identity[1],
@@ -403,15 +413,16 @@ impl PtpHost {
             announce.primary_transmitter_identity[5],
             announce.primary_transmitter_identity[6],
             announce.primary_transmitter_identity[7]
-        );
-        self.primary_transmitter_priority1 = announce.primary_transmitter_priority_1;
-        self.primary_transmitter_priority2 = announce.primary_transmitter_priority_2;
-        self.primary_transmitter_clock_class = announce.primary_transmitter_clock_quality[0];
-        self.primary_transmitter_clock_accuracy = announce.primary_transmitter_clock_quality[1];
-        self.primary_transmitter_scaled_log_variance = u16::from_be_bytes([
+        ));
+        self.primary_transmitter_priority1 = Some(announce.primary_transmitter_priority_1);
+        self.primary_transmitter_priority2 = Some(announce.primary_transmitter_priority_2);
+        self.primary_transmitter_clock_class = Some(announce.primary_transmitter_clock_quality[0]);
+        self.primary_transmitter_clock_accuracy =
+            Some(announce.primary_transmitter_clock_quality[1]);
+        self.primary_transmitter_scaled_log_variance = Some(u16::from_be_bytes([
             announce.primary_transmitter_clock_quality[2],
             announce.primary_transmitter_clock_quality[3],
-        ]);
+        ]));
 
         // Store UTC offset and origin timestamp
         self.current_utc_offset = Some(announce.current_utc_offset);
@@ -419,10 +430,11 @@ impl PtpHost {
 
         // Determine state based on PTP hierarchy info
         // Key insight: Compare the announcing device's clock identity with the primary transmitter it claims
-        let _is_self_primary_transmitter = self.clock_identity == self.primary_transmitter_identity;
+        let _is_self_primary_transmitter =
+            Some(&self.clock_identity) == self.primary_transmitter_identity.as_ref();
 
         // Set state and selected transmitter based on announce content
-        if self.steps_removed == 0 {
+        if self.steps_removed == Some(0) {
             // This device claims to be the primary transmitter
             self.state = PtpState::Transmitter;
             self.selected_transmitter_id = None; // Transmitters don't receive from anyone
@@ -430,14 +442,18 @@ impl PtpHost {
             // This device is following the announced primary transmitter
             // Only set selected transmitter from announce if we don't already have it from sync traffic
             if self.selected_transmitter_id.is_none()
-                && self.primary_transmitter_identity != "00:00:00:00:00:00:00:00"
-                && !self.primary_transmitter_identity.is_empty()
+                && self.primary_transmitter_identity.as_deref() != Some("00:00:00:00:00:00:00:00")
+                && !self
+                    .primary_transmitter_identity
+                    .as_deref()
+                    .unwrap_or("")
+                    .is_empty()
             {
-                self.selected_transmitter_id = Some(self.primary_transmitter_identity.clone());
+                self.selected_transmitter_id = self.primary_transmitter_identity.clone();
                 self.selected_transmitter_confidence = 0.7; // Good confidence from announce
             }
 
-            if self.steps_removed == 1 {
+            if self.steps_removed == Some(1) {
                 self.state = PtpState::Receiver;
             } else {
                 self.state = PtpState::Passive;
@@ -541,63 +557,73 @@ impl PtpHost {
 
     /// Resolve clock class to human-readable description
     pub fn format_clock_class(&self) -> String {
-        let description = match self.clock_class {
-            0..=5 => "Reserved",
-            6 => "Primary reference (GPS, atomic clock, etc.)",
-            7 => "Primary reference (degraded)",
-            8..=12 => "Reserved",
-            13 => "Application specific",
-            14 => "Application specific (degraded)",
-            15..=51 => "Reserved",
-            52 => "Class 7 (degraded A)",
-            53..=57 => "Reserved",
-            58 => "Class 14 (degraded A)",
-            59..=67 => "Reserved",
-            68..=122 => "Alternate PTP profile",
-            123..=132 => "Reserved",
-            133..=170 => "Alternate PTP profile",
-            171..=186 => "Reserved",
-            187 => "Class 7 (degraded B)",
-            188..=192 => "Reserved",
-            193 => "Class 14 (degraded B)",
-            194..=215 => "Reserved",
-            216..=232 => "Alternate PTP profile",
-            233..=247 => "Reserved",
-            248 => "Default, free-running",
-            249..=254 => "Reserved",
-            255 => "Follower-only",
-        };
-        format!("{} ({})", self.clock_class, description)
+        match self.clock_class {
+            None => "N/A".to_string(),
+            Some(class) => {
+                let description = match class {
+                    0..=5 => "Reserved",
+                    6 => "Primary reference (GPS, atomic clock, etc.)",
+                    7 => "Primary reference (degraded)",
+                    8..=12 => "Reserved",
+                    13 => "Application specific",
+                    14 => "Application specific (degraded)",
+                    15..=51 => "Reserved",
+                    52 => "Class 7 (degraded A)",
+                    53..=57 => "Reserved",
+                    58 => "Class 14 (degraded A)",
+                    59..=67 => "Reserved",
+                    68..=122 => "Alternate PTP profile",
+                    123..=132 => "Reserved",
+                    133..=170 => "Alternate PTP profile",
+                    171..=186 => "Reserved",
+                    187 => "Class 7 (degraded B)",
+                    188..=192 => "Reserved",
+                    193 => "Class 14 (degraded B)",
+                    194..=215 => "Reserved",
+                    216..=232 => "Alternate PTP profile",
+                    233..=247 => "Reserved",
+                    248 => "Default, free-running",
+                    249..=254 => "Reserved",
+                    255 => "Follower-only",
+                };
+                format!("{} ({})", class, description)
+            }
+        }
     }
 
     /// Resolve clock accuracy
     pub fn format_clock_accuracy(&self) -> String {
-        let description = match self.clock_accuracy {
-            0..=0x1f => "Reserved",
-            0x20 => "25 ns",
-            0x21 => "100 ns",
-            0x22 => "250 ns",
-            0x23 => "1 µs",
-            0x24 => "2.5 µs",
-            0x25 => "10 µs",
-            0x26 => "25 µs",
-            0x27 => "100 µs",
-            0x28 => "250 µs",
-            0x29 => "1 ms",
-            0x2a => "2.5 ms",
-            0x2b => "10 ms",
-            0x2c => "25 ms",
-            0x2d => "100 ms",
-            0x2e => "250 ms",
-            0x2f => "1 s",
-            0x30 => "10 s",
-            0x31 => "> 10 s",
-            0x32..=0x7f => "Reserved",
-            0x80..=0xfd => "Alternate PTP profile",
-            0xfe => "Unknown",
-            0xff => "Reserved",
-        };
-        format!("{} ({})", self.clock_accuracy, description)
+        match self.clock_accuracy {
+            None => "N/A".to_string(),
+            Some(accuracy) => {
+                let description = match accuracy {
+                    0..=0x1f => "Reserved",
+                    0x20 => "25 ns",
+                    0x21 => "100 ns",
+                    0x22 => "250 ns",
+                    0x23 => "1 µs",
+                    0x24 => "2.5 µs",
+                    0x25 => "10 µs",
+                    0x26 => "25 µs",
+                    0x27 => "100 µs",
+                    0x28 => "250 µs",
+                    0x29 => "1 ms",
+                    0x2a => "2.5 ms",
+                    0x2b => "10 ms",
+                    0x2c => "25 ms",
+                    0x2d => "100 ms",
+                    0x2e => "250 ms",
+                    0x2f => "1 s",
+                    0x30 => "10 s",
+                    0x31 => "> 10 s",
+                    0x32..=0x7f => "Reserved",
+                    0x80..=0xfd => "Alternate PTP profile",
+                    0xfe => "Unknown",
+                    0xff => "Reserved",
+                };
+                format!("{} ({})", accuracy, description)
+            }
+        }
     }
 
     /// Format the current UTC offset as a human-readable string
@@ -729,22 +755,22 @@ mod tests {
         );
 
         // Test common clock class values
-        host.clock_class = 6;
+        host.clock_class = Some(6);
         assert_eq!(
             host.format_clock_class(),
             "6 (Primary reference (GPS, atomic clock, etc.))"
         );
 
-        host.clock_class = 7;
+        host.clock_class = Some(7);
         assert_eq!(
             host.format_clock_class(),
             "7 (Primary reference (degraded))"
         );
 
-        host.clock_class = 248;
+        host.clock_class = Some(248);
         assert_eq!(host.format_clock_class(), "248 (Default, free-running)");
 
-        host.clock_class = 255;
+        host.clock_class = Some(255);
         assert_eq!(host.format_clock_class(), "255 (Follower-only)");
     }
 
@@ -758,21 +784,21 @@ mod tests {
         );
 
         // Test default values
-        assert_eq!(host.priority1, 128);
-        assert_eq!(host.clock_class, 248);
+        assert_eq!(host.priority1, None);
+        assert_eq!(host.clock_class, None);
         assert_eq!(host.total_message_count, 0);
 
         // Test setting custom values
-        host.priority1 = 64;
-        host.clock_class = 6;
-        assert_eq!(host.priority1, 64);
-        assert_eq!(host.clock_class, 6);
+        host.priority1 = Some(64);
+        host.clock_class = Some(6);
+        assert_eq!(host.priority1, Some(64));
+        assert_eq!(host.clock_class, Some(6));
 
         // Test another set of values
-        host.priority1 = 255;
-        host.clock_class = 255;
-        assert_eq!(host.priority1, 255);
-        assert_eq!(host.clock_class, 255);
+        host.priority1 = Some(255);
+        host.clock_class = Some(255);
+        assert_eq!(host.priority1, Some(255));
+        assert_eq!(host.clock_class, Some(255));
 
         // Test message count increment
         host.total_message_count += 1;
@@ -859,12 +885,12 @@ mod tests {
         // Update correction field
         host.update_correction_field(1500);
         assert_eq!(host.last_correction_field, Some(1500));
-        assert_eq!(host.get_correction_field_string(), "1500");
+        assert_eq!(host.get_correction_field_string(), "1500 (0.02 ns)");
 
         // Update with different correction field
         host.update_correction_field(-750);
         assert_eq!(host.last_correction_field, Some(-750));
-        assert_eq!(host.get_correction_field_string(), "-750");
+        assert_eq!(host.get_correction_field_string(), "-750 (-0.01 ns)");
     }
 
     #[test]
@@ -900,11 +926,11 @@ mod tests {
 
         // Host with announce messages should be eligible
         host.announce_count = 1;
-        host.primary_transmitter_identity = "00:11:22:33:44:55:66:77".to_string();
+        host.primary_transmitter_identity = Some("00:11:22:33:44:55:66:77".to_string());
         assert!(host.is_bmca_eligible());
 
         // Host with empty primary_transmitter_identity should not be eligible
-        host.primary_transmitter_identity = String::new();
+        host.primary_transmitter_identity = Some(String::new());
         assert!(!host.is_bmca_eligible());
     }
 
@@ -1260,7 +1286,7 @@ mod tests {
             128,  // priority2
         );
         host.state = PtpState::Transmitter;
-        host.steps_removed = 0;
+        host.steps_removed = Some(0);
 
         tracker.hosts.insert(host.clock_identity.clone(), host);
 
@@ -1333,12 +1359,12 @@ mod tests {
 
         // Set announce message data to make host BMCA-eligible
         host.announce_count = 1;
-        host.primary_transmitter_identity = clock_identity;
-        host.primary_transmitter_priority1 = priority1;
-        host.primary_transmitter_clock_class = clock_class;
-        host.primary_transmitter_clock_accuracy = accuracy;
-        host.primary_transmitter_scaled_log_variance = variance;
-        host.primary_transmitter_priority2 = priority2;
+        host.primary_transmitter_identity = Some(clock_identity);
+        host.primary_transmitter_priority1 = Some(priority1);
+        host.primary_transmitter_clock_class = Some(clock_class);
+        host.primary_transmitter_clock_accuracy = Some(accuracy);
+        host.primary_transmitter_scaled_log_variance = Some(variance);
+        host.primary_transmitter_priority2 = Some(priority2);
         host.state = PtpState::Transmitter;
 
         host

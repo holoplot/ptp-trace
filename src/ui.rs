@@ -256,7 +256,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                     ]));
                     (format!("{}{}", id, confidence_symbol), cell)
                 })
-                .unwrap_or_else(|| ("None".to_string(), Cell::from("None")));
+                .unwrap_or_else(|| ("-".to_string(), Cell::from("-")));
 
             // Format IP address display with interface info
             let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
@@ -299,8 +299,8 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(clock_identity_display),
                 Cell::from(ip_display),
                 Cell::from(host.domain_number.to_string()),
-                Cell::from(host.priority1.to_string()),
-                Cell::from(host.clock_class.to_string()),
+                Cell::from(host.priority1.map_or("-".to_string(), |p| p.to_string())),
+                Cell::from(host.clock_class.map_or("-".to_string(), |c| c.to_string())),
                 selected_transmitter_cell,
                 Cell::from(host.total_message_count.to_string()),
                 Cell::from(last_seen_str),
@@ -371,7 +371,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                         ]));
                         (format!("{}{}", id, confidence_symbol), cell)
                     })
-                    .unwrap_or_else(|| ("None".to_string(), Cell::from("None")));
+                    .unwrap_or_else(|| ("-".to_string(), Cell::from("None")));
 
                 // Format IP address display with interface info
                 let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
@@ -406,8 +406,8 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                     Cell::from(host.clock_identity.clone()),
                     Cell::from(ip_display),
                     Cell::from(host.domain_number.to_string()),
-                    Cell::from(host.priority1.to_string()),
-                    Cell::from(host.clock_class.to_string()),
+                    Cell::from(host.priority1.map_or("-".to_string(), |p| p.to_string())),
+                    Cell::from(host.clock_class.map_or("-".to_string(), |c| c.to_string())),
                     selected_transmitter_cell,
                     Cell::from(host.total_message_count.to_string()),
                     Cell::from(last_seen_str),
@@ -594,9 +594,25 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             ));
         }
 
+        // Add basic fields that are always present
+        details_text.push(create_aligned_field(
+            "Port: ",
+            host.port.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ));
+
+        // Conditionally add version field only if it has a value
+        if host.last_version.is_some() {
+            details_text.push(create_aligned_field(
+                "Version: ",
+                host.get_version_string(),
+                LABEL_WIDTH,
+                theme,
+            ));
+        }
+
         details_text.extend(vec![
-            create_aligned_field("Port: ", host.port.to_string(), LABEL_WIDTH, theme),
-            create_aligned_field("Version: ", host.get_version_string(), LABEL_WIDTH, theme),
             create_aligned_field_with_vendor(
                 "State: ",
                 {
@@ -623,25 +639,41 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 LABEL_WIDTH,
                 theme,
             ),
-            create_aligned_field("Priority: ", host.priority1.to_string(), LABEL_WIDTH, theme),
-            create_aligned_field(
+        ]);
+
+        // Conditionally add optional fields only if they have values
+        if let Some(priority) = host.priority1 {
+            details_text.push(create_aligned_field(
+                "Priority: ",
+                priority.to_string(),
+                LABEL_WIDTH,
+                theme,
+            ));
+        }
+
+        if host.clock_class.is_some() {
+            details_text.push(create_aligned_field(
                 "Clock Class: ",
                 host.format_clock_class(),
                 LABEL_WIDTH,
                 theme,
-            ),
-            create_aligned_field(
+            ));
+        }
+
+        if host.clock_accuracy.is_some() {
+            details_text.push(create_aligned_field(
                 "Accuracy: ",
                 host.format_clock_accuracy(),
                 LABEL_WIDTH,
                 theme,
-            ),
-            create_aligned_field_with_vendor(
+            ));
+        }
+
+        // Always show selected transmitter field since it can show meaningful state
+        if host.selected_transmitter_id.is_some() {
+            details_text.push(create_aligned_field_with_vendor(
                 "Selected Transmitter: ",
-                host.selected_transmitter_id
-                    .as_deref()
-                    .unwrap_or("None")
-                    .to_string(),
+                host.selected_transmitter_id.as_deref().unwrap().to_string(),
                 host.selected_transmitter_id
                     .as_deref()
                     .and_then(|id| get_vendor_by_clock_identity(id))
@@ -650,38 +682,62 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 LABEL_WIDTH,
                 theme,
                 theme.get_confidence_color(host.selected_transmitter_confidence),
-            ),
-            create_aligned_field(
-                "Last Seen: ",
-                format!("{:.1}s ago", host.time_since_last_seen().as_secs_f64()),
+            ));
+        }
+
+        details_text.push(create_aligned_field(
+            "Last Seen: ",
+            format!("{:.1}s ago", host.time_since_last_seen().as_secs_f64()),
+            LABEL_WIDTH,
+            theme,
+        ));
+
+        if host.current_utc_offset.is_some() {
+            details_text.push(create_aligned_field(
+                "UTC Offset: ",
+                host.format_utc_offset(),
                 LABEL_WIDTH,
                 theme,
-            ),
-            create_aligned_field("UTC Offset: ", host.format_utc_offset(), LABEL_WIDTH, theme),
-            create_aligned_field(
+            ));
+        }
+
+        if host.last_correction_field.is_some() {
+            details_text.push(create_aligned_field(
                 "Correction Field: ",
                 host.get_correction_field_string(),
                 LABEL_WIDTH,
                 theme,
-            ),
-            create_aligned_field(
+            ));
+        }
+
+        if host.announce_origin_timestamp.is_some() {
+            details_text.push(create_aligned_field(
                 "Announce Timestamp: ",
                 host.format_announce_timestamp(),
                 LABEL_WIDTH,
                 theme,
-            ),
-            create_aligned_field(
+            ));
+        }
+
+        if host.sync_origin_timestamp.is_some() {
+            details_text.push(create_aligned_field(
                 "Sync Timestamp: ",
                 host.format_sync_timestamp(),
                 LABEL_WIDTH,
                 theme,
-            ),
-            create_aligned_field(
+            ));
+        }
+
+        if host.followup_origin_timestamp.is_some() {
+            details_text.push(create_aligned_field(
                 "Follow-Up Timestamp: ",
                 host.format_followup_timestamp(),
                 LABEL_WIDTH,
                 theme,
-            ),
+            ));
+        }
+
+        details_text.extend(vec![
             Line::from(""),
             Line::from(vec![Span::styled(
                 "Message Counts:",
