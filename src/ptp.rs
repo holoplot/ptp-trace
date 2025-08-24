@@ -1733,18 +1733,18 @@ impl PtpTracker {
             host.state = PtpState::Listening;
         }
 
+        host.total_message_count += 1;
+
         // Process message based on type
         match header.message_type {
             PtpMessageType::Announce => {
                 host.announce_count += 1;
-                host.total_message_count += 1;
                 if let Some(announce) = announce_msg {
                     host.update_from_announce(&announce);
                 }
             }
             PtpMessageType::Sync => {
                 host.sync_count += 1;
-                host.total_message_count += 1;
                 host.last_sync_timestamp = Some(std::time::Instant::now());
 
                 // Extract origin timestamp from Sync message
@@ -1782,7 +1782,6 @@ impl PtpTracker {
             }
             PtpMessageType::DelayReq => {
                 host.delay_req_count += 1;
-                host.total_message_count += 1;
                 // Delay requests are sent by receivers
                 if host.announce_count == 0 {
                     host.state = PtpState::Receiver;
@@ -1820,7 +1819,6 @@ impl PtpTracker {
             }
             PtpMessageType::DelayResp => {
                 host.delay_resp_count += 1;
-                host.total_message_count += 1;
 
                 // Delay responses are sent by (primary) transmitters
                 if host.announce_count == 0 {
@@ -1830,7 +1828,6 @@ impl PtpTracker {
             }
             PtpMessageType::PDelayReq => {
                 host.pdelay_req_count += 1;
-                host.total_message_count += 1;
                 // PDelay requests are used for peer-to-peer delay measurement
                 // In P2P mode, each node measures delay with its neighbors directly
                 // This doesn't indicate transmitter-receiver hierarchy like DelayReq does
@@ -1848,7 +1845,6 @@ impl PtpTracker {
             }
             PtpMessageType::PDelayResp => {
                 host.pdelay_resp_count += 1;
-                host.total_message_count += 1;
                 // PDelay responses are sent in response to PDelay requests
                 // These contain receive and transmit timestamps for delay calculation
                 // Like PDelayReq, they don't indicate transmitter-receiver relationship
@@ -1864,7 +1860,6 @@ impl PtpTracker {
             }
             PtpMessageType::PDelayRespFollowUp => {
                 host.pdelay_resp_follow_up_count += 1;
-                host.total_message_count += 1;
                 // PDelay response follow-up messages provide precise transmit timestamps
                 // for peer delay measurements in two-step mode. This completes the
                 // peer delay measurement cycle: PDelayReq -> PDelayResp -> PDelayRespFollowUp
@@ -1879,7 +1874,6 @@ impl PtpTracker {
                 }
             }
             PtpMessageType::FollowUp => {
-                host.total_message_count += 1;
                 // Extract precise origin timestamp from Follow-Up message
                 if let Some(followup_msg) = followup_msg {
                     host.followup_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
@@ -1913,7 +1907,6 @@ impl PtpTracker {
                 }
             }
             _ => {
-
                 // Handle other message types as needed
             }
         }
