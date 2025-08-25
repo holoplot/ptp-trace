@@ -7,8 +7,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const MAX_PACKET_SIZE: usize = 1024;
-
 #[derive(Debug, Clone)]
 pub struct PtpHost {
     pub clock_identity: String,
