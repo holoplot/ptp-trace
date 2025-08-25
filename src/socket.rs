@@ -30,6 +30,7 @@ pub struct RawPacket {
     pub _dest_ip: Ipv4Addr,
     pub source_port: u16,
     pub dest_port: u16,
+    pub vlan_id: Option<u16>,
     pub interface_name: String,
     pub ptp_payload: Vec<u8>,
 }
@@ -183,6 +184,8 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
     let ethertype = u16::from_be_bytes([packet_data[12], packet_data[13]]);
     let mut ip_offset = 14;
 
+    let mut vlan_id: Option<u16> = None;
+
     // Handle VLAN tags (skip them for now as requested)
     if ethertype == 0x8100 {
         // VLAN tag present, skip 4 bytes
@@ -190,6 +193,7 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
             return None;
         }
         ip_offset = 18;
+        vlan_id = Some(u16::from_be_bytes([packet_data[14], packet_data[15]]) & 0x0FFF);
         let inner_ethertype = u16::from_be_bytes([packet_data[16], packet_data[17]]);
         if inner_ethertype != 0x0800 {
             // Not IPv4
@@ -250,6 +254,7 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
         _dest_ip: dest_ip,
         source_port,
         dest_port,
+        vlan_id,
         interface_name: interface_name.to_string(),
         ptp_payload,
     })

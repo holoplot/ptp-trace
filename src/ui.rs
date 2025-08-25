@@ -1049,6 +1049,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     // Create table headers
     let headers = Row::new(vec![
         Cell::from("Time Ago"),
+        Cell::from("VLAN"),
         Cell::from("Source IP"),
         Cell::from("Port"),
         Cell::from("Interface"),
@@ -1095,6 +1096,10 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
 
             Row::new(vec![
                 Cell::from(time_str),
+                Cell::from(match packet.vlan_id {
+                    Some(id) => id.to_string(),
+                    None => "-".to_string(),
+                }),
                 Cell::from(packet.source_ip.clone()),
                 Cell::from(packet.source_port.to_string()),
                 Cell::from(packet.interface.clone()),
@@ -1119,20 +1124,21 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         .collect();
 
     let widths = [
-        Constraint::Length(10), // Time Ago
-        Constraint::Length(15), // Source IP
-        Constraint::Length(5),  // Port
-        Constraint::Length(10), // Interface
-        Constraint::Length(4),  // Version
-        Constraint::Length(13), // Message Type
-        Constraint::Length(6),  // Length
-        Constraint::Length(24), // Clock Identity
-        Constraint::Length(7),  // Domain
-        Constraint::Length(5),  // Sequence
-        Constraint::Length(6),  // Flags
-        Constraint::Length(12), // Correction
-        Constraint::Length(9),  // Log Interval
-        Constraint::Length(60), // Details
+        Constraint::Length(10),  // Time Ago
+        Constraint::Length(5),   // VLAN
+        Constraint::Length(15),  // Source IP
+        Constraint::Length(5),   // Port
+        Constraint::Length(10),  // Interface
+        Constraint::Length(4),   // Version
+        Constraint::Length(13),  // Message Type
+        Constraint::Length(6),   // Length
+        Constraint::Length(24),  // Clock Identity
+        Constraint::Length(7),   // Domain
+        Constraint::Length(5),   // Sequence
+        Constraint::Length(6),   // Flags
+        Constraint::Length(12),  // Correction
+        Constraint::Length(9),   // Log Interval
+        Constraint::Length(100), // Details
     ];
 
     let table = Table::new(rows, widths)

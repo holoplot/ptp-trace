@@ -29,6 +29,7 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - 📈 Network statistics and quality metrics
 - 🕐 Timing relationship tracking
 - 🌳 Visual hierarchy mapping of transmitter-receiver relationships
+- 🏷️ **VLAN support** - Detects and displays VLAN tags in PTP packets
 
 ### 📋 **Host Management**
 - 📝 Comprehensive host table with sortable columns
