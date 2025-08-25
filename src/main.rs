@@ -92,19 +92,12 @@ async fn main() -> Result<()> {
         ThemeName::Default
     });
 
-    // Create multicast sockets early to fail fast if network setup is problematic
-    let ((event_socket, general_socket), interfaces) = socket::create(&cli.interface).await?;
+    // Create raw socket receiver early to fail fast if network setup is problematic
+    let raw_socket_receiver = socket::create(&cli.interface).await?;
 
     // Initialize the application
     let update_interval = Duration::from_millis(cli.update_interval);
-    let mut app = App::new(
-        update_interval,
-        cli.debug,
-        theme_name,
-        event_socket,
-        general_socket,
-        interfaces,
-    )?;
+    let mut app = App::new(update_interval, cli.debug, theme_name, raw_socket_receiver)?;
 
     // Run the TUI application
     app.run().await?;

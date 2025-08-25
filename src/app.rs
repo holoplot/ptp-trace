@@ -92,6 +92,7 @@ impl SortColumn {
 #[derive(Debug, Clone)]
 pub struct PacketInfo {
     pub timestamp: Instant,
+    pub vlan_id: Option<u16>,
     pub source_ip: String,
     pub source_port: u16,
     pub interface: String,
@@ -105,6 +106,7 @@ pub struct PacketInfo {
     pub correction_field: i64,
     pub log_message_interval: i8,
     pub details: Option<String>,
+    pub raw_packet_data: Vec<u8>,
 }
 
 pub struct App {
@@ -134,11 +136,9 @@ impl App {
         update_interval: Duration,
         debug: bool,
         theme_name: crate::themes::ThemeName,
-        event_socket: tokio::net::UdpSocket,
-        general_socket: tokio::net::UdpSocket,
-        interfaces: Vec<(String, std::net::Ipv4Addr)>,
+        raw_socket_receiver: crate::socket::RawSocketReceiver,
     ) -> Result<Self> {
-        let ptp_tracker = PtpTracker::new(event_socket, general_socket, interfaces)?;
+        let ptp_tracker = PtpTracker::new(raw_socket_receiver)?;
         let theme = crate::themes::Theme::new(theme_name);
 
         Ok(Self {
@@ -326,6 +326,7 @@ impl App {
         for packet in processed_packets {
             let packet_info = PacketInfo {
                 timestamp: packet.timestamp,
+                vlan_id: packet.vlan_id,
                 source_ip: packet.source_ip.to_string(),
                 source_port: packet.source_port,
                 interface: packet.interface,
@@ -339,6 +340,7 @@ impl App {
                 correction_field: packet.correction_field,
                 log_message_interval: packet.log_message_interval,
                 details: packet.details,
+                raw_packet_data: packet.raw_packet_data,
             };
             self.ptp_tracker.add_packet_to_host(
                 &packet.clock_identity,

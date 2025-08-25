@@ -1,14 +1,54 @@
+//! Cross-platform raw socket implementation for PTP traffic capture
+//!
+//! This module implements packet capture using libpcap/pcap for cross-platform
+//! promiscuous mode support. Works on Linux, macOS, and Windows.
+//!
+//! Key features:
+//! - Cross-platform promiscuous mode using pcap
+//! - Multicast group membership (essential for receiving multicast PTP packets)
+//! - Full packet data preservation alongside parsed PTP content
+//! - VLAN header handling (skipped for now)
+//! - Per-interface packet tracking
+//! - Smart interface filtering (excludes virtual interfaces by default)
+
 use anyhow::Result;
+use pcap::{Capture, Device, Linktype};
 use socket2::{Domain, Protocol, Socket, Type};
-
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
-use tokio::net::UdpSocket;
+use std::net::{IpAddr, Ipv4Addr};
+use tokio::sync::mpsc;
+use tokio::time::Duration;
 
 const PTP_EVENT_PORT: u16 = 319;
 const PTP_GENERAL_PORT: u16 = 320;
 const PTP_MULTICAST_ADDR: &str = "224.0.1.129";
+
+#[derive(Debug, Clone)]
+pub struct RawPacket {
+    pub data: Vec<u8>,
+    pub source_ip: Ipv4Addr,
+    pub _dest_ip: Ipv4Addr,
+    pub source_port: u16,
+    pub dest_port: u16,
+    pub interface_name: String,
+    pub ptp_payload: Vec<u8>,
+}
+
+pub struct RawSocketReceiver {
+    pub receiver: mpsc::UnboundedReceiver<RawPacket>,
+    pub _handles: Vec<tokio::task::JoinHandle<()>>,
+    pub interfaces: Vec<(String, Ipv4Addr)>,
+}
+
+impl RawSocketReceiver {
+    pub fn try_recv(&mut self) -> Option<RawPacket> {
+        self.receiver.try_recv().ok()
+    }
+
+    pub fn get_interfaces(&self) -> &[(String, Ipv4Addr)] {
+        &self.interfaces
+    }
+}
 
 fn iface_addrs_by_name(ifname: &str) -> io::Result<Option<Ipv4Addr>> {
     let mut v4: Option<Ipv4Addr> = None;
@@ -27,41 +67,257 @@ fn iface_addrs_by_name(ifname: &str) -> io::Result<Option<Ipv4Addr>> {
 fn get_all_interface_addrs() -> io::Result<Vec<(String, Ipv4Addr)>> {
     let mut interfaces = Vec::new();
 
-    for iface in if_addrs::get_if_addrs().map_err(|e| io::Error::new(io::ErrorKind::Other, e))? {
-        if let if_addrs::IfAddr::V4(addr) = iface.addr {
-            // Skip loopback interfaces
-            if !addr.ip.is_loopback() {
-                interfaces.push((iface.name, addr.ip));
+    // Get available devices from pcap
+    let devices = match Device::list() {
+        Ok(devices) => devices,
+        Err(e) => {
+            eprintln!("Warning: Failed to list pcap devices: {}", e);
+            return Ok(interfaces);
+        }
+    };
+
+    for device in devices {
+        // Skip loopback devices
+        if device.flags.is_loopback() {
+            continue;
+        }
+
+        // Skip devices without names
+        let device_name = device.name.clone();
+
+        // Get IPv4 addresses for this device
+        for addr in &device.addresses {
+            if let IpAddr::V4(ipv4) = addr.addr {
+                if !ipv4.is_loopback() && is_suitable_interface(&device) {
+                    interfaces.push((device_name.clone(), ipv4));
+                    println!("Including interface: {} ({})", device_name, ipv4);
+                    break; // Only take first IPv4 address per interface
+                } else {
+                    println!("Excluding interface: {} (filtered)", device_name);
+                }
             }
         }
     }
+
+    if interfaces.is_empty() {
+        println!("Warning: No suitable interfaces found.");
+        println!(
+            "Consider specifying interfaces manually with --interface (e.g., --interface eth0)"
+        );
+    } else {
+        println!(
+            "Found {} suitable interface(s): {}",
+            interfaces.len(),
+            interfaces
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
     Ok(interfaces)
 }
 
-pub fn get_interface_for_ip(ip: &IpAddr, interfaces: &[(String, Ipv4Addr)]) -> Option<String> {
-    if let IpAddr::V4(ipv4) = ip {
-        // Try to find which interface this IP might have come from based on subnet
-        for (ifname, iface_addr) in interfaces {
-            // For simplicity, we'll match based on the first 3 octets (Class C subnet)
-            // This is a heuristic and may not be perfect for all network configurations
-            let ip_octets = ipv4.octets();
-            let iface_octets = iface_addr.octets();
-            if ip_octets[0] == iface_octets[0]
-                && ip_octets[1] == iface_octets[1]
-                && ip_octets[2] == iface_octets[2]
-            {
-                return Some(ifname.clone());
+fn is_suitable_interface(device: &Device) -> bool {
+    let device_name = &device.name;
+
+    // Skip loopback
+    if device.flags.is_loopback() {
+        return false;
+    }
+
+    // Skip if marked as down
+    if !device.flags.is_up() {
+        return false;
+    }
+
+    // Skip common virtual interface patterns
+    let virtual_prefixes = [
+        "veth", "docker", "br-", "virbr", "vmnet", "tun", "tap", "wg", "dummy", "bond", "team",
+        "macvlan", "vlan", "lo", "flannel", "cni0", "wg", "wl", "wlan", "ww", "idrac",
+    ];
+
+    for prefix in &virtual_prefixes {
+        if device_name.starts_with(prefix) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn join_multicast_group(interface_name: &str, interface_addr: Ipv4Addr) -> Result<()> {
+    // Create socket to join the multicast group - we won't use it for receiving
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_reuse_address(true)?;
+
+    let multicast_addr: Ipv4Addr = PTP_MULTICAST_ADDR.parse()?;
+
+    // Join multicast group once per interface (same IP for both PTP ports)
+    socket
+        .join_multicast_v4(&multicast_addr, &interface_addr)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to join multicast group on interface {}: {}",
+                interface_name,
+                e
+            )
+        })?;
+
+    println!(
+        "Joined PTP multicast group {} on interface {} ({})",
+        PTP_MULTICAST_ADDR, interface_name, interface_addr
+    );
+
+    Ok(())
+}
+
+fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<RawPacket> {
+    // Minimum Ethernet frame size check
+    if packet_data.len() < 14 {
+        return None;
+    }
+
+    // Parse Ethernet header
+    let ethertype = u16::from_be_bytes([packet_data[12], packet_data[13]]);
+    let mut ip_offset = 14;
+
+    // Handle VLAN tags (skip them for now as requested)
+    if ethertype == 0x8100 {
+        // VLAN tag present, skip 4 bytes
+        if packet_data.len() < 18 {
+            return None;
+        }
+        ip_offset = 18;
+        let inner_ethertype = u16::from_be_bytes([packet_data[16], packet_data[17]]);
+        if inner_ethertype != 0x0800 {
+            // Not IPv4
+            return None;
+        }
+    } else if ethertype != 0x0800 {
+        // Not IPv4
+        return None;
+    }
+
+    // Parse IPv4 header
+    if packet_data.len() < ip_offset + 20 {
+        return None;
+    }
+
+    let ip_header = &packet_data[ip_offset..];
+    let ip_version = (ip_header[0] >> 4) & 0x0F;
+    let ip_protocol = ip_header[9];
+
+    if ip_version != 4 || ip_protocol != 17 {
+        // Not IPv4 or not UDP
+        return None;
+    }
+
+    let source_ip = Ipv4Addr::new(ip_header[12], ip_header[13], ip_header[14], ip_header[15]);
+    let dest_ip = Ipv4Addr::new(ip_header[16], ip_header[17], ip_header[18], ip_header[19]);
+
+    let ip_header_length = ((ip_header[0] & 0x0F) * 4) as usize;
+    if packet_data.len() < ip_offset + ip_header_length + 8 {
+        return None;
+    }
+
+    // Parse UDP header
+    let udp_offset = ip_offset + ip_header_length;
+    let udp_header = &packet_data[udp_offset..];
+
+    let source_port = u16::from_be_bytes([udp_header[0], udp_header[1]]);
+    let dest_port = u16::from_be_bytes([udp_header[2], udp_header[3]]);
+    let udp_length = u16::from_be_bytes([udp_header[4], udp_header[5]]) as usize;
+
+    // Filter for PTP ports
+    if dest_port != PTP_EVENT_PORT && dest_port != PTP_GENERAL_PORT {
+        return None;
+    }
+
+    // Extract PTP payload
+    let ptp_offset = udp_offset + 8;
+    if packet_data.len() < ptp_offset || udp_length < 8 {
+        return None;
+    }
+
+    let ptp_payload_length = std::cmp::min(udp_length - 8, packet_data.len() - ptp_offset);
+    let ptp_payload = packet_data[ptp_offset..ptp_offset + ptp_payload_length].to_vec();
+
+    Some(RawPacket {
+        data: packet_data.to_vec(),
+        source_ip,
+        _dest_ip: dest_ip,
+        source_port,
+        dest_port,
+        interface_name: interface_name.to_string(),
+        ptp_payload,
+    })
+}
+
+async fn capture_on_interface(
+    interface_name: String,
+    sender: mpsc::UnboundedSender<RawPacket>,
+) -> Result<()> {
+    // Find the pcap device
+    let device = Device::list()?
+        .into_iter()
+        .find(|d| d.name == interface_name)
+        .ok_or_else(|| anyhow::anyhow!("Interface {} not found", interface_name))?;
+
+    // Create capture handle
+    let mut cap = Capture::from_device(device)?
+        .promisc(true)
+        .snaplen(65535)
+        .timeout(100)
+        .buffer_size(1024 * 1024)
+        .open()?;
+
+    // Set BPF filter for UDP traffic on PTP ports
+    cap.filter(
+        &format!(
+            "udp and (port {} or port {})",
+            PTP_EVENT_PORT, PTP_GENERAL_PORT
+        ),
+        true,
+    )?;
+
+    // Check if we're capturing on Ethernet
+    if cap.get_datalink() != Linktype::ETHERNET {
+        eprintln!(
+            "Warning: Interface {} is not Ethernet, packet parsing may fail",
+            interface_name
+        );
+    }
+
+    loop {
+        match cap.next_packet() {
+            Ok(packet) => {
+                if let Some(raw_packet) = process_ethernet_packet(packet.data, &interface_name) {
+                    if sender.send(raw_packet).is_err() {
+                        // Receiver has been dropped, exit the loop
+                        break;
+                    }
+                }
+            }
+            Err(pcap::Error::TimeoutExpired) => {
+                // Timeout is expected, continue
+                tokio::task::yield_now().await;
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Error capturing packet on {}: {}", interface_name, e);
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
     }
-    None
+
+    Ok(())
 }
 
-pub async fn create(
-    ifnames: &[String],
-) -> Result<((UdpSocket, UdpSocket), Vec<(String, Ipv4Addr)>)> {
-    // Get interfaces to listen on
-    let interfaces = if ifnames.is_empty() {
+pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
+    // Get interfaces to monitor
+    let target_interfaces = if ifnames.is_empty() {
         // Default to all available interfaces
         get_all_interface_addrs()?
     } else {
@@ -80,68 +336,55 @@ pub async fn create(
         interfaces
     };
 
-    if interfaces.is_empty() {
+    if target_interfaces.is_empty() {
         return Err(anyhow::anyhow!(
-            "No IPv4 interfaces available for PTP monitoring"
+            "No suitable interfaces available for PTP monitoring"
         ));
     }
 
-    // Create the event socket (port 319) using socket2 for multicast support
-    let event_socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-    event_socket.set_reuse_address(true)?;
-    let event_bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), PTP_EVENT_PORT);
-    event_socket.bind(&event_bind_addr.into())
-        .map_err(|e| anyhow::anyhow!("Failed to bind to PTP event port {}: {}. You may need to run with sudo or check if another PTP application is running.", PTP_EVENT_PORT, e))?;
-
-    // Create the general socket (port 320) using socket2 for multicast support
-    let general_socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-    general_socket.set_reuse_address(true)?;
-    let general_bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), PTP_GENERAL_PORT);
-    general_socket.bind(&general_bind_addr.into())
-        .map_err(|e| anyhow::anyhow!("Failed to bind to PTP general port {}: {}. You may need to run with sudo or check if another PTP application is running.", PTP_GENERAL_PORT, e))?;
-
-    // Join the PTP multicast group on all specified interfaces for both sockets
-    let multicast_addr: Ipv4Addr = PTP_MULTICAST_ADDR.parse()?;
-
-    for (ifname, iface_addr) in &interfaces {
-        event_socket
-            .join_multicast_v4(&multicast_addr, iface_addr)
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to join multicast group on interface {} for event socket: {}",
-                    ifname,
-                    e
-                )
-            })?;
-
-        general_socket
-            .join_multicast_v4(&multicast_addr, iface_addr)
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to join multicast group on interface {} for general socket: {}",
-                    ifname,
-                    e
-                )
-            })?;
+    // Set up multicast group membership for each interface
+    for (interface_name, interface_addr) in &target_interfaces {
+        // Join multicast groups
+        if let Err(e) = join_multicast_group(interface_name, *interface_addr) {
+            eprintln!(
+                "Warning: Could not join multicast group on {}: {}",
+                interface_name, e
+            );
+        }
     }
 
-    // Convert to tokio UdpSockets
-    event_socket.set_nonblocking(true)?;
-    general_socket.set_nonblocking(true)?;
-    let tokio_event_socket = UdpSocket::from_std(event_socket.into())?;
-    let tokio_general_socket = UdpSocket::from_std(general_socket.into())?;
+    let (sender, receiver) = mpsc::unbounded_channel();
+    let mut handles = Vec::new();
+
+    // Start packet capture on each interface
+    for (interface_name, _) in &target_interfaces {
+        let sender_clone = sender.clone();
+        let interface_name_clone = interface_name.clone();
+        let handle = tokio::spawn(async move {
+            if let Err(e) = capture_on_interface(interface_name_clone, sender_clone).await {
+                eprintln!("Packet capture error: {}", e);
+            }
+        });
+        handles.push(handle);
+    }
 
     println!(
-        "Listening on {} interface(s) for PTP events (port {}) and general messages (port {}): {}",
-        interfaces.len(),
+        "pcap monitoring started on {} interface(s) for PTP events (port {}) and general messages (port {}): {}",
+        target_interfaces.len(),
         PTP_EVENT_PORT,
         PTP_GENERAL_PORT,
-        interfaces
+        target_interfaces
             .iter()
             .map(|(name, _)| name.as_str())
             .collect::<Vec<_>>()
             .join(", ")
     );
 
-    Ok(((tokio_event_socket, tokio_general_socket), interfaces))
+    println!("Note: Virtual interfaces excluded by default. Use --interface to override.");
+
+    Ok(RawSocketReceiver {
+        receiver,
+        _handles: handles,
+        interfaces: target_interfaces,
+    })
 }

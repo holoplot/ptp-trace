@@ -1,9 +1,10 @@
 # 🕰️ PTP Trace
 
-A powerful terminal-based application for monitoring and analyzing PTPv2 (Precision Time Protocol) networks in real-time.
+A powerful cross-platform terminal-based application for monitoring and analyzing PTPv2 (Precision Time Protocol) networks in real-time.
 
 ![License](https://img.shields.io/badge/license-GPLv2-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)
 
 ## ✨ Features
 
@@ -17,7 +18,11 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 
 ### 🌐 **Network Monitoring**
 - 🔍 Automatic PTP host discovery on port 319 and 320
-- 📡 Real-time packet capture and analysis
+- 📡 **Cross-platform packet capture** - Uses libpcap/pcap for promiscuous mode on Linux, macOS, and Windows
+- 🌐 **Multicast group membership** - Ensures network interfaces receive multicast PTP traffic
+- 🔍 **Full packet analysis** - Records both raw packet data and parsed PTP content
+- 🎯 **Smart interface selection** - Automatically filters virtual interfaces while supporting manual override
+- ⚡ **Hardware-accelerated filtering** - Uses BPF filters for efficient packet capture
 - 🏷️ Host classification by PTP state
 - 🏆 **BMCA (Best Master Clock Algorithm)** - Automatic primary time transmitter detection
 - 📊 Primary Time Transmitter marked with "PT" indicator
@@ -37,6 +42,7 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 ### 📦 **Packet Analysis**
 - 📋 Real-time packet history with version identification
 - 🎨 Color-coded message types (ANNOUNCE, SYNC, DELAY_REQ, PDELAY_REQ, etc.)
+- 🌐 **Interface-aware capture** - Tracks which interface each packet was received on
 
 ## Demo
 
@@ -46,7 +52,12 @@ A powerful terminal-based application for monitoring and analyzing PTPv2 (Precis
 
 ### 📋 Prerequisites
 - 🦀 Rust 1.70.0 or later
-- 🔧 Privilege to bind ports < 1024 (root)
+- 🔧 **Administrator privileges required** - Needed for promiscuous mode packet capture
+- 🌐 Network interfaces with PTP traffic (ports 319/320)
+- 📦 **Platform-specific requirements**:
+  - **Linux**: libpcap-dev (`sudo apt install libpcap-dev`)
+  - **macOS**: Xcode command line tools (`xcode-select --install`)
+  - **Windows**: WinPcap or Npcap installed
 
 ### 🔨 Installation
 
@@ -58,33 +69,38 @@ cd ptp-trace
 # Build from source
 cargo build --release
 
-# Run with default settings
-./target/release/ptp-trace
+# Run with default settings (requires root)
+sudo ./target/release/ptp-trace
 ```
 
 ### ⚙️ Command Line Options
 
 ```bash
-# 🌐 Monitor specific interface
-./target/release/ptp-trace --interface eth0
+# 🌐 Monitor specific interface (requires root)
+sudo ./target/release/ptp-trace --interface eth0
 
-# 🌐 Monitor multiple interfaces
-./target/release/ptp-trace --interface eth0 --interface eth1
+# 🌐 Monitor multiple interfaces (requires admin privileges)
+sudo ./target/release/ptp-trace --interface eth0 --interface eth1        # Linux/macOS
 
-# 🌐 Monitor all interfaces (default behavior)
-./target/release/ptp-trace
+# 🌐 Monitor all suitable interfaces (default behavior, requires admin privileges)
+# Automatically excludes virtual interfaces (Docker, VPN, etc.)
+sudo ./target/release/ptp-trace                                          # Linux/macOS
+./target/release/ptp-trace.exe                                          # Windows (as Administrator)
+
+# 🌐 Force monitoring of virtual interfaces (requires explicit specification)
+sudo ./target/release/ptp-trace --interface docker0 --interface br-123456
 
 # ⚡ Faster updates (500ms)
-./target/release/ptp-trace --update-interval 500
+sudo ./target/release/ptp-trace --update-interval 500
 
 # 🎨 Use Matrix theme
-./target/release/ptp-trace --theme matrix
+sudo ./target/release/ptp-trace --theme matrix
 
 # 🐛 Enable debug mode
-./target/release/ptp-trace --debug
+sudo ./target/release/ptp-trace --debug
 
 # 🔧 Combine options
-./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix --update-interval 500
+sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix --update-interval 500
 ```
 
 ## 🎮 Controls
@@ -130,10 +146,11 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 - 🔍 Debug mode with scroll information
 
 ### 🗺️ **Future Roadmap**
-- 📤 **Data export** - JSON, PCAP output formats
+- 📤 **Data export** - JSON, PCAP output formats for raw packet data
 - 🔍 **Advanced filtering** - Search and filter capabilities
 - 📊 **Enhanced analytics** - Statistical analysis of timing data
 - 🔧 **Configuration management** - Save/load application settings
+- 📦 **Packet inspection tools** - Hex dump viewer for raw packet analysis
 
 ## 🛠️ Development
 
@@ -178,6 +195,9 @@ Feel free to contribute to this project by submitting pull requests with the upd
 - ⌨️ **crossterm** - Cross-platform terminal handling
 - 📝 **clap** - Command line argument parsing
 - ❗ **anyhow** - Error handling
+- 📡 **pcap** - Cross-platform packet capture (libpcap/WinPcap/Npcap)
+- 🔧 **socket2** - Advanced socket operations and multicast group joining
+- 🧮 **libc** - Low-level system calls
 
 ## 🤝 Contributing
 

@@ -3,10 +3,9 @@ use crate::oui_map::lookup_vendor_bytes;
 use anyhow::Result;
 use std::{
     collections::HashMap,
-    net::{IpAddr, SocketAddr},
+    net::IpAddr,
     time::{Duration, Instant},
 };
-use tokio::net::UdpSocket;
 
 const MAX_PACKET_SIZE: usize = 1024;
 
@@ -1334,12 +1333,14 @@ mod tests {
             (event_socket, general_socket)
         });
 
-        PtpTracker::new(
-            event_socket,
-            general_socket,
-            vec![("eth0".to_string(), std::net::Ipv4Addr::new(192, 168, 1, 1))],
-        )
-        .unwrap()
+        // Create a dummy raw socket receiver for tests
+        let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let raw_socket_receiver = crate::socket::RawSocketReceiver {
+            receiver,
+            _handles: vec![],
+            interfaces: vec![("eth0".to_string(), std::net::Ipv4Addr::new(192, 168, 1, 1))],
+        };
+        PtpTracker::new(raw_socket_receiver).unwrap()
     }
 
     fn create_test_host_with_announce_data(
@@ -1420,8 +1421,7 @@ mod tests {
 pub struct PtpTracker {
     hosts: HashMap<String, PtpHost>,
     last_packet: Instant,
-    event_socket: UdpSocket,
-    general_socket: UdpSocket,
+    raw_socket_receiver: crate::socket::RawSocketReceiver,
     // Track recent sync/follow-up senders per domain for transmitter-receiver correlation
     recent_sync_senders: HashMap<u8, Vec<(String, Instant)>>,
     // Track interfaces for determining inbound interface of packets
@@ -1432,6 +1432,7 @@ pub struct PtpTracker {
 pub struct ProcessedPacket {
     pub timestamp: std::time::Instant,
     pub source_ip: std::net::IpAddr,
+    pub vlan_id: Option<u16>,
     pub source_port: u16,
     pub interface: String,
     pub version: u8,
@@ -1444,19 +1445,16 @@ pub struct ProcessedPacket {
     pub correction_field: i64,
     pub log_message_interval: i8,
     pub details: Option<String>,
+    pub raw_packet_data: Vec<u8>,
 }
 
 impl PtpTracker {
-    pub fn new(
-        event_socket: UdpSocket,
-        general_socket: UdpSocket,
-        interfaces: Vec<(String, std::net::Ipv4Addr)>,
-    ) -> Result<Self> {
+    pub fn new(raw_socket_receiver: crate::socket::RawSocketReceiver) -> Result<Self> {
+        let interfaces = raw_socket_receiver.get_interfaces().to_vec();
         Ok(Self {
             hosts: HashMap::new(),
             last_packet: Instant::now(),
-            event_socket,
-            general_socket,
+            raw_socket_receiver,
             recent_sync_senders: HashMap::new(),
             interfaces,
         })
@@ -1471,66 +1469,45 @@ impl PtpTracker {
     }
 
     async fn process_ptp_messages(&mut self) -> Result<Vec<ProcessedPacket>> {
-        let mut buffer = [0u8; MAX_PACKET_SIZE];
-        let mut packets_to_process = Vec::new();
-
-        // Collect packets from both sockets first to avoid borrowing issues
-        {
-            // Check event socket (port 319)
-            let event_socket = &self.event_socket;
-            for _ in 0..50 {
-                // Limit iterations to prevent blocking too long
-                match event_socket.try_recv_from(&mut buffer) {
-                    Ok((len, src_addr)) => {
-                        packets_to_process.push((buffer[..len].to_vec(), src_addr, 319));
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // No more messages available
-                        break;
-                    }
-                    Err(e) => {
-                        eprintln!("Error receiving PTP packet from event socket: {}", e);
-                        break;
-                    }
-                }
-            }
-
-            // Check general socket (port 320)
-            let general_socket = &self.general_socket;
-            for _ in 0..50 {
-                // Limit iterations to prevent blocking too long
-                match general_socket.try_recv_from(&mut buffer) {
-                    Ok((len, src_addr)) => {
-                        packets_to_process.push((buffer[..len].to_vec(), src_addr, 320));
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // No more messages available
-                        break;
-                    }
-                    Err(e) => {
-                        eprintln!("Error receiving PTP packet from general socket: {}", e);
-                        break;
-                    }
-                }
-            }
-        }
-
         let mut processed_packets = Vec::new();
 
-        // Now process collected packets
-        for (packet_data, src_addr, port) in packets_to_process {
-            match self.handle_ptp_packet(&packet_data, src_addr, port).await {
-                Ok(Some(packet_info)) => {
-                    processed_packets.push(packet_info);
+        // Process packets from raw socket capture
+        for _ in 0..100 {
+            // Limit iterations to prevent blocking too long
+            match self.raw_socket_receiver.try_recv() {
+                Some(raw_packet) => {
+                    // println!(
+                    //     "Received PTP packet on interface {} from {}:{} -> {}:{}",
+                    //     raw_packet.interface_name,
+                    //     raw_packet.source_ip,
+                    //     raw_packet.source_port,
+                    //     raw_packet.dest_ip,
+                    //     raw_packet.dest_port
+                    // );
+
+                    let src_addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+                        raw_packet.source_ip,
+                        raw_packet.source_port,
+                    ));
+
+                    match self.handle_raw_ptp_packet(&raw_packet, src_addr).await {
+                        Ok(Some(packet_info)) => {
+                            processed_packets.push(packet_info);
+                        }
+                        Ok(None) => {
+                            // Packet was processed but not recorded (invalid/filtered)
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Error processing PTP packet from {} on port {} (interface {}): {}",
+                                src_addr, raw_packet.dest_port, raw_packet.interface_name, e
+                            );
+                        }
+                    }
                 }
-                Ok(None) => {
-                    // Packet was processed but not recorded (invalid/filtered)
-                }
-                Err(e) => {
-                    eprintln!(
-                        "Error processing PTP packet from {} on port {}: {}",
-                        src_addr, port, e
-                    );
+                None => {
+                    // No more packets available
+                    break;
                 }
             }
         }
@@ -1538,12 +1515,13 @@ impl PtpTracker {
         Ok(processed_packets)
     }
 
-    async fn handle_ptp_packet(
+    async fn handle_raw_ptp_packet(
         &mut self,
-        data: &[u8],
-        src_addr: SocketAddr,
-        src_port: u16,
+        raw_packet: &crate::socket::RawPacket,
+        src_addr: std::net::SocketAddr,
     ) -> Result<Option<ProcessedPacket>> {
+        let data = &raw_packet.ptp_payload;
+
         // Basic PTP packet validation
         if data.len() < 34 {
             return Ok(None); // Packet too small to be valid PTP
@@ -1573,18 +1551,13 @@ impl PtpTracker {
             header.source_port_identity[7]
         );
 
-        // Determine inbound interface
-        let interface = match crate::socket::get_interface_for_ip(&src_addr.ip(), &self.interfaces) {
-            Some(iface) => iface,
-            None => return Ok(None),
-        };
-
         // Create packet info for recording
         let mut packet_info = ProcessedPacket {
             timestamp: std::time::Instant::now(),
+            vlan_id: raw_packet.vlan_id,
             source_ip: src_addr.ip(),
-            source_port: src_port,
-            interface,
+            source_port: src_addr.port(),
+            interface: raw_packet.interface_name.clone(),
             version: header.version,
             message_type: header.message_type,
             message_length: header.message_length,
@@ -1595,6 +1568,7 @@ impl PtpTracker {
             correction_field: header.correction_field,
             log_message_interval: header.log_message_interval,
             details: None,
+            raw_packet_data: raw_packet.data.clone(),
         };
 
         // Parse messages first if needed to avoid borrowing conflicts
@@ -1769,6 +1743,14 @@ impl PtpTracker {
                 host.announce_count += 1;
                 if let Some(announce) = announce_msg {
                     host.update_from_announce(&announce);
+                    packet_info.details = Some(format!(
+                        "Priority1: {}, ClockClass: {}, Accuracy: {}, Priority2: {}, StepsRemoved: {}",
+                        announce.primary_transmitter_priority_1,
+                        announce.primary_transmitter_clock_quality[0],
+                        announce.primary_transmitter_clock_quality[1],
+                        announce.primary_transmitter_priority_2,
+                        announce.steps_removed
+                    ));
                 }
             }
             PtpMessageType::Sync => {
@@ -1780,6 +1762,7 @@ impl PtpTracker {
                     host.sync_origin_timestamp = Some(sync_msg.origin_timestamp);
                     host.last_origin_timestamp = Some(sync_msg.origin_timestamp);
                     host.timestamp_source = Some("Sync".to_string());
+                    packet_info.details = Some(format!("Origin: {}", host.format_sync_timestamp()));
                 }
 
                 // Record this as a recent sync sender for this domain
@@ -1810,6 +1793,13 @@ impl PtpTracker {
             }
             PtpMessageType::DelayReq => {
                 host.delay_req_count += 1;
+                if let Some(delay_req) = delay_req_msg {
+                    packet_info.details = Some(format!(
+                        "Origin: {}",
+                        PtpHost::format_ptp_timestamp(&delay_req.origin_timestamp)
+                    ));
+                }
+
                 // Delay requests are sent by receivers
                 if host.announce_count == 0 {
                     host.state = PtpState::Receiver;
@@ -1847,6 +1837,27 @@ impl PtpTracker {
             }
             PtpMessageType::DelayResp => {
                 host.delay_resp_count += 1;
+                if let Some(delay_resp) = delay_resp_msg {
+                    packet_info.details = Some(format!(
+                        "Receive: {}, Requesting: {}",
+                        PtpHost::format_ptp_timestamp(&delay_resp.receive_timestamp),
+                        format!(
+                            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
+                            delay_resp.requesting_port_identity[0],
+                            delay_resp.requesting_port_identity[1],
+                            delay_resp.requesting_port_identity[2],
+                            delay_resp.requesting_port_identity[3],
+                            delay_resp.requesting_port_identity[4],
+                            delay_resp.requesting_port_identity[5],
+                            delay_resp.requesting_port_identity[6],
+                            delay_resp.requesting_port_identity[7],
+                            u16::from_be_bytes([
+                                delay_resp.requesting_port_identity[8],
+                                delay_resp.requesting_port_identity[9]
+                            ])
+                        )
+                    ));
+                }
 
                 // Delay responses are sent by (primary) transmitters
                 if host.announce_count == 0 {
@@ -1859,8 +1870,12 @@ impl PtpTracker {
                 // PDelay requests are used for peer-to-peer delay measurement
                 // In P2P mode, each node measures delay with its neighbors directly
                 // This doesn't indicate transmitter-receiver hierarchy like DelayReq does
-                if let Some(_pdelay_req) = pdelay_req_msg {
+                if let Some(pdelay_req) = pdelay_req_msg {
                     // Could extract timing information if needed for analysis
+                    packet_info.details = Some(format!(
+                        "Origin: {}",
+                        PtpHost::format_ptp_timestamp(&pdelay_req.origin_timestamp)
+                    ));
                 }
 
                 if host.announce_count == 0 {
@@ -1876,8 +1891,27 @@ impl PtpTracker {
                 // PDelay responses are sent in response to PDelay requests
                 // These contain receive and transmit timestamps for delay calculation
                 // Like PDelayReq, they don't indicate transmitter-receiver relationship
-                if let Some(_pdelay_resp) = pdelay_resp_msg {
+                if let Some(pdelay_resp) = pdelay_resp_msg {
                     // Could extract timing information and requesting port identity if needed
+                    packet_info.details = Some(format!(
+                        "Request Receipt: {}, Requesting: {}",
+                        PtpHost::format_ptp_timestamp(&pdelay_resp.request_receipt_timestamp),
+                        format!(
+                            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
+                            pdelay_resp.requesting_port_identity[0],
+                            pdelay_resp.requesting_port_identity[1],
+                            pdelay_resp.requesting_port_identity[2],
+                            pdelay_resp.requesting_port_identity[3],
+                            pdelay_resp.requesting_port_identity[4],
+                            pdelay_resp.requesting_port_identity[5],
+                            pdelay_resp.requesting_port_identity[6],
+                            pdelay_resp.requesting_port_identity[7],
+                            u16::from_be_bytes([
+                                pdelay_resp.requesting_port_identity[8],
+                                pdelay_resp.requesting_port_identity[9]
+                            ])
+                        )
+                    ));
                 }
 
                 if host.announce_count == 0 {
@@ -1891,8 +1925,29 @@ impl PtpTracker {
                 // PDelay response follow-up messages provide precise transmit timestamps
                 // for peer delay measurements in two-step mode. This completes the
                 // peer delay measurement cycle: PDelayReq -> PDelayResp -> PDelayRespFollowUp
-                if let Some(_pdelay_resp_followup) = pdelay_resp_followup_msg {
+                if let Some(pdelay_resp_followup) = pdelay_resp_followup_msg {
                     // Could extract precise timing information if needed
+                    packet_info.details = Some(format!(
+                        "Response Origin: {}, Requesting: {}",
+                        PtpHost::format_ptp_timestamp(
+                            &pdelay_resp_followup.response_origin_timestamp
+                        ),
+                        format!(
+                            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
+                            pdelay_resp_followup.requesting_port_identity[0],
+                            pdelay_resp_followup.requesting_port_identity[1],
+                            pdelay_resp_followup.requesting_port_identity[2],
+                            pdelay_resp_followup.requesting_port_identity[3],
+                            pdelay_resp_followup.requesting_port_identity[4],
+                            pdelay_resp_followup.requesting_port_identity[5],
+                            pdelay_resp_followup.requesting_port_identity[6],
+                            pdelay_resp_followup.requesting_port_identity[7],
+                            u16::from_be_bytes([
+                                pdelay_resp_followup.requesting_port_identity[8],
+                                pdelay_resp_followup.requesting_port_identity[9]
+                            ])
+                        )
+                    ));
                 }
 
                 if host.announce_count == 0 {
@@ -1907,6 +1962,10 @@ impl PtpTracker {
                     host.followup_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
                     host.last_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
                     host.timestamp_source = Some("Follow-Up".to_string());
+                    packet_info.details = Some(format!(
+                        "Precise Origin: {}",
+                        host.format_followup_timestamp()
+                    ));
                 }
 
                 // Record this as a recent sync sender for this domain (follow-up correlates with sync)
@@ -1938,6 +1997,12 @@ impl PtpTracker {
                 // Handle other message types as needed
             }
         }
+
+        // Update last packet timestamp
+        self.last_packet = std::time::Instant::now();
+
+        // Clean up old sync senders periodically
+        self.cleanup_old_sync_senders();
 
         Ok(Some(packet_info))
     }
