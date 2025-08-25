@@ -556,220 +556,228 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
     let theme = &app.theme;
-    let hosts = app.get_hosts();
-    let selected_index = app.get_selected_index();
 
-    let details_text = if let Some(host) = hosts.get(selected_index) {
-        // Get local IPs for comparison
-        let local_ips = app.ptp_tracker.get_local_ips();
-        // Define the width for label alignment
-        const LABEL_WIDTH: usize = 22; // Width for "Follow-Up Timestamp: "
+    let details_text = if let Some(ref selected_host_id) = app.selected_host_id {
+        if let Some(host) = app.ptp_tracker.get_host_by_id(selected_host_id) {
+            // Get local IPs for comparison
+            let local_ips = app.ptp_tracker.get_local_ips();
+            // Define the width for label alignment
+            const LABEL_WIDTH: usize = 22; // Width for "Follow-Up Timestamp: "
 
-        let mut details_text = vec![
-            // Host details section
-            create_aligned_field_with_vendor(
-                "Clock Identity: ",
-                host.clock_identity.clone(),
-                host.get_vendor_name()
-                    .map(|vendor| format!(" ({})", vendor))
-                    .unwrap_or_default(),
-                LABEL_WIDTH,
-                theme,
-                theme.text_primary,
-            ),
-        ];
-
-        // Add IP addresses with interface info - each on its own row with "IP Address:" label
-        for (ip, interface) in host.ip_addresses.iter() {
-            let ip_display = if local_ips.contains(ip) {
-                format!("{} ({}) *", ip, interface)
-            } else {
-                format!("{} ({})", ip, interface)
-            };
-            details_text.push(create_aligned_field(
-                "IP Address: ",
-                ip_display,
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        // Add basic fields that are always present
-        details_text.push(create_aligned_field(
-            "Port: ",
-            host.port.to_string(),
-            LABEL_WIDTH,
-            theme,
-        ));
-
-        // Conditionally add version field only if it has a value
-        if host.last_version.is_some() {
-            details_text.push(create_aligned_field(
-                "Version: ",
-                host.get_version_string(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        details_text.extend(vec![
-            create_aligned_field_with_vendor(
-                "State: ",
-                {
-                    let mut state_display = host.state.full_name().to_string();
-                    // Add PT marker for primary time transmitter based on BMCA
-                    if let Some(primary_transmitter) = app
-                        .ptp_tracker
-                        .get_primary_time_transmitter_for_domain(host.domain_number)
-                    {
-                        if host.clock_identity == primary_transmitter.clock_identity {
-                            state_display = format!("{} (Primary)", state_display);
-                        }
-                    }
-                    state_display
-                },
-                String::new(),
-                LABEL_WIDTH,
-                theme,
-                theme.get_state_color(&host.state),
-            ),
-            create_aligned_field(
-                "Domain: ",
-                host.domain_number.to_string(),
-                LABEL_WIDTH,
-                theme,
-            ),
-        ]);
-
-        // Conditionally add optional fields only if they have values
-        if let Some(priority) = host.priority1 {
-            details_text.push(create_aligned_field(
-                "Priority: ",
-                priority.to_string(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        if host.clock_class.is_some() {
-            details_text.push(create_aligned_field(
-                "Clock Class: ",
-                host.format_clock_class(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        if host.clock_accuracy.is_some() {
-            details_text.push(create_aligned_field(
-                "Accuracy: ",
-                host.format_clock_accuracy(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        // Always show selected transmitter field since it can show meaningful state
-        if host.selected_transmitter_id.is_some() {
-            details_text.push(create_aligned_field_with_vendor(
-                "Selected Transmitter: ",
-                host.selected_transmitter_id.as_deref().unwrap().to_string(),
-                host.selected_transmitter_id
-                    .as_deref()
-                    .and_then(|id| get_vendor_by_clock_identity(id))
-                    .map(|vendor| format!(" ({})", vendor))
-                    .unwrap_or_default(),
-                LABEL_WIDTH,
-                theme,
-                theme.get_confidence_color(host.selected_transmitter_confidence),
-            ));
-        }
-
-        details_text.push(create_aligned_field(
-            "Last Seen: ",
-            format!("{:.1}s ago", host.time_since_last_seen().as_secs_f64()),
-            LABEL_WIDTH,
-            theme,
-        ));
-
-        if host.current_utc_offset.is_some() {
-            details_text.push(create_aligned_field(
-                "UTC Offset: ",
-                host.format_utc_offset(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        if host.last_correction_field.is_some() {
-            details_text.push(create_aligned_field(
-                "Correction Field: ",
-                host.get_correction_field_string(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        if host.announce_origin_timestamp.is_some() {
-            details_text.push(create_aligned_field(
-                "Announce Timestamp: ",
-                host.format_announce_timestamp(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        if host.sync_origin_timestamp.is_some() {
-            details_text.push(create_aligned_field(
-                "Sync Timestamp: ",
-                host.format_sync_timestamp(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        if host.followup_origin_timestamp.is_some() {
-            details_text.push(create_aligned_field(
-                "Follow-Up Timestamp: ",
-                host.format_followup_timestamp(),
-                LABEL_WIDTH,
-                theme,
-            ));
-        }
-
-        details_text.extend(vec![
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "Message Counts:",
-                Style::default()
-                    .fg(theme.text_accent)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            create_aligned_field(
-                "  Announce: ",
-                host.announce_count.to_string(),
-                LABEL_WIDTH,
-                theme,
-            ),
-            create_aligned_field("  Sync: ", host.sync_count.to_string(), LABEL_WIDTH, theme),
-            create_aligned_field(
-                "  Delay Req/Resp: ",
-                format!("{}/{}", host.delay_req_count, host.delay_resp_count),
-                LABEL_WIDTH,
-                theme,
-            ),
-            create_aligned_field(
-                "  PDelay Req/Resp/FU: ",
-                format!(
-                    "{}/{}/{}",
-                    host.pdelay_req_count, host.pdelay_resp_count, host.pdelay_resp_follow_up_count
+            let mut details_text = vec![
+                // Host details section
+                create_aligned_field_with_vendor(
+                    "Clock Identity: ",
+                    host.clock_identity.clone(),
+                    host.get_vendor_name()
+                        .map(|vendor| format!(" ({})", vendor))
+                        .unwrap_or_default(),
+                    LABEL_WIDTH,
+                    theme,
+                    theme.text_primary,
                 ),
+            ];
+
+            // Add IP addresses with interface info - each on its own row with "IP Address:" label
+            for (ip, interface) in host.ip_addresses.iter() {
+                let ip_display = if local_ips.contains(ip) {
+                    format!("{} ({}) *", ip, interface)
+                } else {
+                    format!("{} ({})", ip, interface)
+                };
+                details_text.push(create_aligned_field(
+                    "IP Address: ",
+                    ip_display,
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            // Add basic fields that are always present
+            details_text.push(create_aligned_field(
+                "Port: ",
+                host.port.to_string(),
                 LABEL_WIDTH,
                 theme,
-            ),
-        ]);
+            ));
 
-        details_text
+            // Conditionally add version field only if it has a value
+            if host.last_version.is_some() {
+                details_text.push(create_aligned_field(
+                    "Version: ",
+                    host.get_version_string(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            details_text.extend(vec![
+                create_aligned_field_with_vendor(
+                    "State: ",
+                    {
+                        let mut state_display = host.state.full_name().to_string();
+                        // Add PT marker for primary time transmitter based on BMCA
+                        if let Some(primary_transmitter) = app
+                            .ptp_tracker
+                            .get_primary_time_transmitter_for_domain(host.domain_number)
+                        {
+                            if host.clock_identity == primary_transmitter.clock_identity {
+                                state_display = format!("{} (Primary)", state_display);
+                            }
+                        }
+                        state_display
+                    },
+                    String::new(),
+                    LABEL_WIDTH,
+                    theme,
+                    theme.get_state_color(&host.state),
+                ),
+                create_aligned_field(
+                    "Domain: ",
+                    host.domain_number.to_string(),
+                    LABEL_WIDTH,
+                    theme,
+                ),
+            ]);
+
+            // Conditionally add optional fields only if they have values
+            if let Some(priority) = host.priority1 {
+                details_text.push(create_aligned_field(
+                    "Priority: ",
+                    priority.to_string(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            if host.clock_class.is_some() {
+                details_text.push(create_aligned_field(
+                    "Clock Class: ",
+                    host.format_clock_class(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            if host.clock_accuracy.is_some() {
+                details_text.push(create_aligned_field(
+                    "Accuracy: ",
+                    host.format_clock_accuracy(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            // Always show selected transmitter field since it can show meaningful state
+            if host.selected_transmitter_id.is_some() {
+                details_text.push(create_aligned_field_with_vendor(
+                    "Selected Transmitter: ",
+                    host.selected_transmitter_id.as_deref().unwrap().to_string(),
+                    host.selected_transmitter_id
+                        .as_deref()
+                        .and_then(|id| get_vendor_by_clock_identity(id))
+                        .map(|vendor| format!(" ({})", vendor))
+                        .unwrap_or_default(),
+                    LABEL_WIDTH,
+                    theme,
+                    theme.get_confidence_color(host.selected_transmitter_confidence),
+                ));
+            }
+
+            details_text.push(create_aligned_field(
+                "Last Seen: ",
+                format!("{:.1}s ago", host.time_since_last_seen().as_secs_f64()),
+                LABEL_WIDTH,
+                theme,
+            ));
+
+            if host.current_utc_offset.is_some() {
+                details_text.push(create_aligned_field(
+                    "UTC Offset: ",
+                    host.format_utc_offset(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            if host.last_correction_field.is_some() {
+                details_text.push(create_aligned_field(
+                    "Correction Field: ",
+                    host.get_correction_field_string(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            if host.announce_origin_timestamp.is_some() {
+                details_text.push(create_aligned_field(
+                    "Announce Timestamp: ",
+                    host.format_announce_timestamp(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            if host.sync_origin_timestamp.is_some() {
+                details_text.push(create_aligned_field(
+                    "Sync Timestamp: ",
+                    host.format_sync_timestamp(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            if host.followup_origin_timestamp.is_some() {
+                details_text.push(create_aligned_field(
+                    "Follow-Up Timestamp: ",
+                    host.format_followup_timestamp(),
+                    LABEL_WIDTH,
+                    theme,
+                ));
+            }
+
+            details_text.extend(vec![
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Message Counts:",
+                    Style::default()
+                        .fg(theme.text_accent)
+                        .add_modifier(Modifier::BOLD),
+                )]),
+                create_aligned_field(
+                    "  Announce: ",
+                    host.announce_count.to_string(),
+                    LABEL_WIDTH,
+                    theme,
+                ),
+                create_aligned_field("  Sync: ", host.sync_count.to_string(), LABEL_WIDTH, theme),
+                create_aligned_field(
+                    "  Delay Req/Resp: ",
+                    format!("{}/{}", host.delay_req_count, host.delay_resp_count),
+                    LABEL_WIDTH,
+                    theme,
+                ),
+                create_aligned_field(
+                    "  PDelay Req/Resp/FU: ",
+                    format!(
+                        "{}/{}/{}",
+                        host.pdelay_req_count,
+                        host.pdelay_resp_count,
+                        host.pdelay_resp_follow_up_count
+                    ),
+                    LABEL_WIDTH,
+                    theme,
+                ),
+            ]);
+
+            details_text
+        } else {
+            vec![
+                Line::from("No host found with selected ID"),
+                Line::from(""),
+                Line::from("This may indicate a synchronization issue"),
+            ]
+        }
     } else {
         vec![
             Line::from("No host selected"),

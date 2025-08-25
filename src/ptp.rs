@@ -2490,6 +2490,10 @@ impl PtpTracker {
         }
     }
 
+    pub fn get_host_by_id(&self, clock_identity: &str) -> Option<&PtpHost> {
+        self.hosts.get(clock_identity)
+    }
+
     pub fn get_host_packet_history(&self, clock_identity: &str) -> Option<&[PacketInfo]> {
         self.hosts
             .get(clock_identity)
