@@ -1360,6 +1360,7 @@ mod tests {
             receiver,
             _handles: vec![],
             interfaces: vec![("eth0".to_string(), std::net::Ipv4Addr::new(192, 168, 1, 1))],
+            _multicast_sockets: vec![],
         };
         PtpTracker::new(raw_socket_receiver).unwrap()
     }

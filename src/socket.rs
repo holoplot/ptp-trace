@@ -39,6 +39,7 @@ pub struct RawSocketReceiver {
     pub receiver: mpsc::UnboundedReceiver<RawPacket>,
     pub _handles: Vec<tokio::task::JoinHandle<()>>,
     pub interfaces: Vec<(String, Ipv4Addr)>,
+    pub _multicast_sockets: Vec<Socket>,
 }
 
 impl RawSocketReceiver {
@@ -91,7 +92,6 @@ fn get_all_interface_addrs() -> io::Result<Vec<(String, Ipv4Addr)>> {
             if let IpAddr::V4(ipv4) = addr.addr {
                 if !ipv4.is_loopback() && is_suitable_interface(&device) {
                     interfaces.push((device_name.clone(), ipv4));
-                    println!("Including interface: {} ({})", device_name, ipv4);
                     break; // Only take first IPv4 address per interface
                 } else {
                     println!("Excluding interface: {} (filtered)", device_name);
@@ -104,16 +104,6 @@ fn get_all_interface_addrs() -> io::Result<Vec<(String, Ipv4Addr)>> {
         println!("Warning: No suitable interfaces found.");
         println!(
             "Consider specifying interfaces manually with --interface (e.g., --interface eth0)"
-        );
-    } else {
-        println!(
-            "Found {} suitable interface(s): {}",
-            interfaces.len(),
-            interfaces
-                .iter()
-                .map(|(name, _)| name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
         );
     }
 
@@ -148,8 +138,8 @@ fn is_suitable_interface(device: &Device) -> bool {
     true
 }
 
-fn join_multicast_group(interface_name: &str, interface_addr: Ipv4Addr) -> Result<()> {
-    // Create socket to join the multicast group - we won't use it for receiving
+fn join_multicast_group(interface_name: &str, interface_addr: Ipv4Addr) -> Result<Socket> {
+    // Create socket to join the multicast group - keep it alive to maintain membership
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     socket.set_reuse_address(true)?;
 
@@ -171,7 +161,7 @@ fn join_multicast_group(interface_name: &str, interface_addr: Ipv4Addr) -> Resul
         PTP_MULTICAST_ADDR, interface_name, interface_addr
     );
 
-    Ok(())
+    Ok(socket)
 }
 
 fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<RawPacket> {
@@ -270,13 +260,28 @@ async fn capture_on_interface(
         .find(|d| d.name == interface_name)
         .ok_or_else(|| anyhow::anyhow!("Interface {} not found", interface_name))?;
 
-    // Create capture handle
-    let mut cap = Capture::from_device(device)?
+    // Create capture handle with optimized settings for multiple interfaces
+    let mut cap = match Capture::from_device(device)?
         .promisc(true)
         .snaplen(65535)
         .timeout(100)
-        .buffer_size(1024 * 1024)
-        .open()?;
+        .buffer_size(1024 * 1024) // Smaller buffer per interface
+        .immediate_mode(true) // Don't buffer packets
+        .open()
+    {
+        Ok(cap) => cap,
+        Err(e) => {
+            eprintln!(
+                "Failed to open capture on interface {}: {}",
+                interface_name, e
+            );
+            return Err(anyhow::anyhow!(
+                "Failed to open pcap capture on {}: {}",
+                interface_name,
+                e
+            ));
+        }
+    };
 
     // Set BPF filter for UDP traffic on PTP ports
     cap.filter(
@@ -315,6 +320,9 @@ async fn capture_on_interface(
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
+
+        // Yield to other tasks every packet to prevent monopolizing CPU
+        tokio::task::yield_now().await;
     }
 
     Ok(())
@@ -348,13 +356,17 @@ pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
     }
 
     // Set up multicast group membership for each interface
+    let mut multicast_sockets = Vec::new();
     for (interface_name, interface_addr) in &target_interfaces {
-        // Join multicast groups
-        if let Err(e) = join_multicast_group(interface_name, *interface_addr) {
-            eprintln!(
-                "Warning: Could not join multicast group on {}: {}",
-                interface_name, e
-            );
+        // Join multicast groups and keep sockets alive
+        match join_multicast_group(interface_name, *interface_addr) {
+            Ok(socket) => multicast_sockets.push(socket),
+            Err(e) => {
+                eprintln!(
+                    "Warning: Could not join multicast group on {}: {}",
+                    interface_name, e
+                );
+            }
         }
     }
 
@@ -366,8 +378,11 @@ pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
         let sender_clone = sender.clone();
         let interface_name_clone = interface_name.clone();
         let handle = tokio::spawn(async move {
-            if let Err(e) = capture_on_interface(interface_name_clone, sender_clone).await {
-                eprintln!("Packet capture error: {}", e);
+            // Stagger startup to reduce resource contention
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            if let Err(e) = capture_on_interface(interface_name_clone.clone(), sender_clone).await {
+                eprintln!("Packet capture error on {}: {}", interface_name_clone, e);
             }
         });
         handles.push(handle);
@@ -391,5 +406,6 @@ pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
         receiver,
         _handles: handles,
         interfaces: target_interfaces,
+        _multicast_sockets: multicast_sockets,
     })
 }
