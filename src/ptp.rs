@@ -536,74 +536,51 @@ impl PtpHost {
         let nanoseconds =
             u32::from_be_bytes([timestamp[6], timestamp[7], timestamp[8], timestamp[9]]);
 
-        // PTP epoch: 1970-01-01 00:00:00 TAI (International Atomic Time)
-        // Unix epoch: 1970-01-01 00:00:00 UTC (Coordinated Universal Time)
-        //
-        // TAI does not have leap seconds, UTC does
-        // Relationship: UTC = TAI - (leap seconds offset)
-        //
+        // PTP uses TAI (International Atomic Time) - convert to UTC for display
         // Current leap seconds offset (as of 2024): 37 seconds
-        // This means TAI is 37 seconds ahead of UTC
-        //
-        // Note: This offset changes when leap seconds are added to UTC
-        // Historical leap seconds:
-        // - 1972-06-30: 1 second
-        // - 1972-12-31: 1 second
-        // - ... (many more)
-        // - 2016-12-31: 1 second (total: 37 seconds as of 2024)
+        const LEAP_SECONDS_OFFSET: u64 = 37;
 
-        const LEAP_SECONDS_OFFSET: u64 = 37; // TAI - UTC offset as of 2024
+        // Convert TAI to UTC and format as datetime if within reasonable bounds
+        let utc_seconds = seconds.saturating_sub(LEAP_SECONDS_OFFSET);
 
-        // PTP timestamp is in TAI seconds since 1970-01-01
-        // Convert to UTC seconds for display
-        if seconds >= LEAP_SECONDS_OFFSET {
-            let utc_seconds = seconds - LEAP_SECONDS_OFFSET;
-            if utc_seconds < 4_000_000_000 {
-                // Use chrono to convert UTC timestamp to datetime
-                if let Some(dt) = DateTime::from_timestamp(utc_seconds as i64, nanoseconds) {
-                    format!(
-                        "{}-{:02}-{:02} {:02}:{:02}:{:02}.{:09}",
-                        dt.year(),
-                        dt.month(),
-                        dt.day(),
-                        dt.hour(),
-                        dt.minute(),
-                        dt.second(),
-                        nanoseconds
-                    )
-                } else {
-                    format!("UTC: {}.{:09}", utc_seconds, nanoseconds)
-                }
-            } else {
-                format!("UTC: {}.{:09}", utc_seconds, nanoseconds)
-            }
+        if let Some(dt) = DateTime::from_timestamp(utc_seconds as i64, nanoseconds) {
+            format!(
+                "{}-{:02}-{:02} {:02}:{:02}:{:02}.{:09}",
+                dt.year(),
+                dt.month(),
+                dt.day(),
+                dt.hour(),
+                dt.minute(),
+                dt.second(),
+                nanoseconds
+            )
         } else {
-            format!("TAI: {}.{:09}", seconds, nanoseconds)
+            // Fallback for invalid timestamps
+            format!("UTC: {}.{:09}", utc_seconds, nanoseconds)
+        }
+    }
+
+    /// Generic helper for formatting optional timestamps
+    fn format_optional_timestamp(timestamp: &Option<[u8; 10]>) -> String {
+        match timestamp {
+            Some(ts) => Self::format_ptp_timestamp(ts),
+            None => "N/A".to_string(),
         }
     }
 
     /// Format the announce origin timestamp
     pub fn format_announce_timestamp(&self) -> String {
-        match &self.announce_origin_timestamp {
-            Some(timestamp) => Self::format_ptp_timestamp(timestamp),
-            None => "N/A".to_string(),
-        }
+        Self::format_optional_timestamp(&self.announce_origin_timestamp)
     }
 
     /// Format the sync origin timestamp
     pub fn format_sync_timestamp(&self) -> String {
-        match &self.sync_origin_timestamp {
-            Some(timestamp) => Self::format_ptp_timestamp(timestamp),
-            None => "N/A".to_string(),
-        }
+        Self::format_optional_timestamp(&self.sync_origin_timestamp)
     }
 
     /// Format the follow-up origin timestamp
     pub fn format_followup_timestamp(&self) -> String {
-        match &self.followup_origin_timestamp {
-            Some(timestamp) => Self::format_ptp_timestamp(timestamp),
-            None => "N/A".to_string(),
-        }
+        Self::format_optional_timestamp(&self.followup_origin_timestamp)
     }
 
     /// Resolve clock class to human-readable description
