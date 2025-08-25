@@ -65,7 +65,6 @@ impl<T> BoundedVec<T> {
 pub struct PtpHost {
     pub clock_identity: String,
     pub ip_addresses: HashMap<IpAddr, String>,
-    pub port: u16,
     pub domain_number: u8,
     pub priority1: Option<u8>,
     pub priority2: Option<u8>,
@@ -277,7 +276,7 @@ pub struct DelayRespMessage {
 }
 
 impl PtpHost {
-    pub fn new(clock_identity: String, ip_address: IpAddr, port: u16, interface: String) -> Self {
+    pub fn new(clock_identity: String, ip_address: IpAddr, interface: String) -> Self {
         let now = Instant::now();
         Self {
             clock_identity,
@@ -286,7 +285,6 @@ impl PtpHost {
                 map.insert(ip_address, interface);
                 map
             },
-            port,
             domain_number: 0,
             priority1: None,
             priority2: None,
@@ -781,7 +779,6 @@ mod tests {
         let mut host = PtpHost::new(
             "00:11:22:33:44:55:66:77".to_string(),
             std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
-            319,
             "eth0".to_string(),
         );
 
@@ -810,7 +807,6 @@ mod tests {
         let mut host = PtpHost::new(
             "00:11:22:33:44:55:66:77".to_string(),
             std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
-            319,
             "eth0".to_string(),
         );
 
@@ -845,7 +841,6 @@ mod tests {
         let mut host = PtpHost::new(
             "00:11:22:33:44:55:66:77".to_string(),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
-            319,
             "eth0".to_string(),
         );
 
@@ -879,7 +874,6 @@ mod tests {
         let mut host = PtpHost::new(
             "00:11:22:33:44:55:66:77".to_string(),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
-            319,
             "eth0".to_string(),
         );
 
@@ -905,7 +899,6 @@ mod tests {
         let mut host = PtpHost::new(
             "00:11:22:33:44:55:66:77".to_string(),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
-            319,
             "eth0".to_string(),
         );
 
@@ -950,7 +943,6 @@ mod tests {
         let mut host = PtpHost::new(
             "00:11:22:33:44:55:66:77".to_string(),
             std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
-            319,
             "eth0".to_string(),
         );
         assert!(!host.is_bmca_eligible());
@@ -1151,7 +1143,6 @@ mod tests {
         let host = PtpHost::new(
             "00:11:22:33:44:55:66:77".to_string(),
             std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
-            319,
             "eth0".to_string(),
         );
         tracker.hosts.insert(host.clock_identity.clone(), host);
@@ -1376,7 +1367,6 @@ mod tests {
         let mut host = PtpHost::new(
             clock_identity.clone(),
             std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
-            319,
             "eth0".to_string(),
         );
 
@@ -1405,7 +1395,6 @@ mod tests {
         let mut host = PtpHost::new(
             "a0:bb:3e:ff:fe:20:12:da".to_string(),
             local_ip1,
-            319,
             "eth0".to_string(),
         );
 
@@ -1422,7 +1411,6 @@ mod tests {
         let remote_host = PtpHost::new(
             "b0:cc:4e:ff:fe:30:23:eb".to_string(),
             remote_ip,
-            319,
             "eth1".to_string(),
         );
         // Note: remote_ip is already added by constructor
@@ -1432,7 +1420,6 @@ mod tests {
         let mut truly_empty_host = PtpHost::new(
             "c0:dd:5f:ff:fe:40:34:fc".to_string(),
             remote_ip,
-            319,
             "eth0".to_string(),
         );
         truly_empty_host.ip_addresses.clear();
@@ -1735,12 +1722,7 @@ impl PtpTracker {
 
         // Get or create host entry
         let host = self.hosts.entry(clock_id.clone()).or_insert_with(|| {
-            PtpHost::new(
-                clock_id.clone(),
-                src_addr.ip(),
-                src_addr.port(),
-                packet.interface.clone(),
-            )
+            PtpHost::new(clock_id.clone(), src_addr.ip(), packet.interface.clone())
         });
 
         // Add this IP address if it's not already known for this host

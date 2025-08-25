@@ -593,14 +593,6 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 ));
             }
 
-            // Add basic fields that are always present
-            details_text.push(create_aligned_field(
-                "Port: ",
-                host.port.to_string(),
-                LABEL_WIDTH,
-                theme,
-            ));
-
             // Conditionally add version field only if it has a value
             if host.last_version.is_some() {
                 details_text.push(create_aligned_field(
@@ -1065,7 +1057,6 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from("Version"),
         Cell::from("Message Type"),
         Cell::from("Length"),
-        Cell::from("Clock Identity"),
         Cell::from("Domain"),
         Cell::from("Seq"),
         Cell::from("Flags"),
@@ -1118,7 +1109,6 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                     theme.get_message_type_color(&packet.message_type),
                 )),
                 Cell::from(packet.message_length.to_string()),
-                Cell::from(clock_display),
                 Cell::from(packet.domain_number.to_string()),
                 Cell::from(packet.sequence_id.to_string()),
                 Cell::from(format!("{:02x}{:02x}", packet.flags[0], packet.flags[1])),
@@ -1133,21 +1123,20 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         .collect();
 
     let widths = [
-        Constraint::Length(10),  // Time Ago
-        Constraint::Length(5),   // VLAN
-        Constraint::Length(15),  // Source IP
-        Constraint::Length(5),   // Port
-        Constraint::Length(10),  // Interface
-        Constraint::Length(4),   // Version
-        Constraint::Length(13),  // Message Type
-        Constraint::Length(6),   // Length
-        Constraint::Length(24),  // Clock Identity
-        Constraint::Length(7),   // Domain
-        Constraint::Length(5),   // Sequence
-        Constraint::Length(6),   // Flags
-        Constraint::Length(12),  // Correction
-        Constraint::Length(9),   // Log Interval
-        Constraint::Length(100), // Details
+        Constraint::Length(10), // Time Ago
+        Constraint::Length(5),  // VLAN
+        Constraint::Length(15), // Source IP
+        Constraint::Length(5),  // Port
+        Constraint::Length(10), // Interface
+        Constraint::Length(4),  // Version
+        Constraint::Length(13), // Message Type
+        Constraint::Length(6),  // Length
+        Constraint::Length(7),  // Domain
+        Constraint::Length(5),  // Sequence
+        Constraint::Length(6),  // Flags
+        Constraint::Length(12), // Correction
+        Constraint::Length(9),  // Log Interval
+        Constraint::Length(80), // Details
     ];
 
     let table = Table::new(rows, widths)
