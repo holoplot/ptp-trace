@@ -755,91 +755,56 @@ impl App {
         self.packet_scroll_offset
     }
 
+    /// Helper method to find host index by clock identity
+    fn find_host_index(&self, clock_identity: &str) -> Option<usize> {
+        if self.tree_view_enabled {
+            self.get_hierarchical_hosts()
+                .iter()
+                .position(|h_host| h_host.host.clock_identity == clock_identity)
+        } else {
+            self.get_hosts()
+                .iter()
+                .position(|host| host.clock_identity == clock_identity)
+        }
+    }
+
+    /// Helper method to get current host list length
+    fn get_host_count(&self) -> usize {
+        if self.tree_view_enabled {
+            self.get_hierarchical_hosts().len()
+        } else {
+            self.get_hosts().len()
+        }
+    }
+
+    /// Helper method to clamp index within valid bounds and update selection
+    fn clamp_and_update_selection(&mut self, index: usize) {
+        let host_count = self.get_host_count();
+        let clamped_index = if host_count == 0 {
+            0
+        } else {
+            index.min(host_count - 1)
+        };
+
+        self.selected_index = clamped_index;
+        if host_count > 0 {
+            self.update_selected_host(clamped_index);
+        }
+    }
+
     fn restore_host_selection(&mut self) {
         // If we have a stored host ID, try to find it in the current list
         if let Some(ref stored_host_id) = self.selected_host_id.clone() {
-            if self.tree_view_enabled {
-                let hierarchical_hosts = self.get_hierarchical_hosts();
-
-                // Try to find the host by clock identity
-                for (index, h_host) in hierarchical_hosts.iter().enumerate() {
-                    if h_host.host.clock_identity == *stored_host_id {
-                        self.selected_index = index;
-                        self.ensure_host_visible(20);
-                        return;
-                    }
-                }
-
-                // If we can't find the stored host, it might have been removed
-                // Keep the current index but ensure it's within bounds
-                let hosts_len = hierarchical_hosts.len();
-                let new_index = if self.selected_index >= hosts_len {
-                    hosts_len.saturating_sub(1)
-                } else {
-                    self.selected_index
-                };
-
-                // Get the host at the new index for updating stored ID
-                let new_host_id = hierarchical_hosts
-                    .get(new_index)
-                    .map(|h| h.host.clock_identity.clone());
-
-                // Update the fields
-                self.selected_index = new_index;
-                self.selected_host_id = new_host_id;
-            } else {
-                let hosts = self.get_hosts();
-
-                // Try to find the host by clock identity
-                for (index, host) in hosts.iter().enumerate() {
-                    if host.clock_identity == *stored_host_id {
-                        self.selected_index = index;
-                        self.ensure_host_visible(20);
-                        return;
-                    }
-                }
-
-                // If we can't find the stored host, it might have been removed
-                // Keep the current index but ensure it's within bounds
-                let hosts_len = hosts.len();
-                let new_index = if self.selected_index >= hosts_len {
-                    hosts_len.saturating_sub(1)
-                } else {
-                    self.selected_index
-                };
-
-                // Update the fields
-                self.selected_index = new_index;
-                self.update_selected_host(new_index);
-            }
-        } else {
-            // No stored selection, ensure current index is valid
-            if self.tree_view_enabled {
-                let hierarchical_hosts = self.get_hierarchical_hosts();
-                let hosts_len = hierarchical_hosts.len();
-                let new_index = if self.selected_index >= hosts_len {
-                    hosts_len.saturating_sub(1)
-                } else {
-                    self.selected_index
-                };
-
-                // Update the fields
-                self.selected_index = new_index;
-                self.update_selected_host(new_index);
-            } else {
-                let hosts = self.get_hosts();
-                let hosts_len = hosts.len();
-                let new_index = if self.selected_index >= hosts_len {
-                    hosts_len.saturating_sub(1)
-                } else {
-                    self.selected_index
-                };
-
-                // Update the fields
-                self.selected_index = new_index;
-                self.update_selected_host(new_index);
+            if let Some(found_index) = self.find_host_index(stored_host_id) {
+                // Found the stored host, select it
+                self.selected_index = found_index;
+                self.ensure_host_visible(20);
+                return;
             }
         }
+
+        // Either no stored host ID, or stored host not found - clamp current index
+        self.clamp_and_update_selection(self.selected_index);
     }
 
     pub fn clear_packet_history(&mut self) {
