@@ -1513,8 +1513,8 @@ impl PtpTracker {
                     ));
 
                     match self.handle_raw_ptp_packet(&raw_packet, src_addr).await {
-                        Ok(Some(packet_info)) => {
-                            processed_packets.push(packet_info);
+                        Ok(Some(packet)) => {
+                            processed_packets.push(packet);
                         }
                         Ok(None) => {
                             // Packet was processed but not recorded (invalid/filtered)
@@ -1574,7 +1574,7 @@ impl PtpTracker {
         );
 
         // Create packet info for recording
-        let mut packet_info = ProcessedPacket {
+        let mut packet = ProcessedPacket {
             timestamp: std::time::Instant::now(),
             vlan_id: raw_packet.vlan_id,
             source_ip: src_addr.ip(),
@@ -1656,7 +1656,7 @@ impl PtpTracker {
         };
 
         // Set details based on message type
-        packet_info.details = match header.message_type {
+        packet.details = match header.message_type {
             PtpMessageType::Sync => {
                 if let Some(ref msg) = sync_msg {
                     Some(format!(
@@ -1739,12 +1739,12 @@ impl PtpTracker {
                 clock_id.clone(),
                 src_addr.ip(),
                 src_addr.port(),
-                packet_info.interface.clone(),
+                packet.interface.clone(),
             )
         });
 
         // Add this IP address if it's not already known for this host
-        host.add_ip_address(src_addr.ip(), packet_info.interface.clone());
+        host.add_ip_address(src_addr.ip(), packet.interface.clone());
 
         // Update last seen
         host.update_last_seen();
@@ -1765,7 +1765,7 @@ impl PtpTracker {
                 host.announce_count += 1;
                 if let Some(announce) = announce_msg {
                     host.update_from_announce(&announce);
-                    packet_info.details = Some(format!(
+                    packet.details = Some(format!(
                         "Priority1: {}, ClockClass: {}, Accuracy: {}, Priority2: {}, StepsRemoved: {}",
                         announce.primary_transmitter_priority_1,
                         announce.primary_transmitter_clock_quality[0],
@@ -1784,7 +1784,7 @@ impl PtpTracker {
                     host.sync_origin_timestamp = Some(sync_msg.origin_timestamp);
                     host.last_origin_timestamp = Some(sync_msg.origin_timestamp);
                     host.timestamp_source = Some(TimestampSource::Sync);
-                    packet_info.details = Some(format!("Origin: {}", host.format_sync_timestamp()));
+                    packet.details = Some(format!("Origin: {}", host.format_sync_timestamp()));
                 }
 
                 // Record this as a recent sync sender for this domain
@@ -1816,7 +1816,7 @@ impl PtpTracker {
             PtpMessageType::DelayReq => {
                 host.delay_req_count += 1;
                 if let Some(delay_req) = delay_req_msg {
-                    packet_info.details = Some(format!(
+                    packet.details = Some(format!(
                         "Origin: {}",
                         PtpHost::format_ptp_timestamp(&delay_req.origin_timestamp)
                     ));
@@ -1860,7 +1860,7 @@ impl PtpTracker {
             PtpMessageType::DelayResp => {
                 host.delay_resp_count += 1;
                 if let Some(delay_resp) = delay_resp_msg {
-                    packet_info.details = Some(format!(
+                    packet.details = Some(format!(
                         "Receive: {}, Requesting: {}",
                         PtpHost::format_ptp_timestamp(&delay_resp.receive_timestamp),
                         format!(
@@ -1894,7 +1894,7 @@ impl PtpTracker {
                 // This doesn't indicate transmitter-receiver hierarchy like DelayReq does
                 if let Some(pdelay_req) = pdelay_req_msg {
                     // Could extract timing information if needed for analysis
-                    packet_info.details = Some(format!(
+                    packet.details = Some(format!(
                         "Origin: {}",
                         PtpHost::format_ptp_timestamp(&pdelay_req.origin_timestamp)
                     ));
@@ -1915,7 +1915,7 @@ impl PtpTracker {
                 // Like PDelayReq, they don't indicate transmitter-receiver relationship
                 if let Some(pdelay_resp) = pdelay_resp_msg {
                     // Could extract timing information and requesting port identity if needed
-                    packet_info.details = Some(format!(
+                    packet.details = Some(format!(
                         "Request Receipt: {}, Requesting: {}",
                         PtpHost::format_ptp_timestamp(&pdelay_resp.request_receipt_timestamp),
                         format!(
@@ -1949,7 +1949,7 @@ impl PtpTracker {
                 // peer delay measurement cycle: PDelayReq -> PDelayResp -> PDelayRespFollowUp
                 if let Some(pdelay_resp_followup) = pdelay_resp_followup_msg {
                     // Could extract precise timing information if needed
-                    packet_info.details = Some(format!(
+                    packet.details = Some(format!(
                         "Response Origin: {}, Requesting: {}",
                         PtpHost::format_ptp_timestamp(
                             &pdelay_resp_followup.response_origin_timestamp
@@ -1984,7 +1984,7 @@ impl PtpTracker {
                     host.followup_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
                     host.last_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
                     host.timestamp_source = Some(TimestampSource::FollowUp);
-                    packet_info.details = Some(format!(
+                    packet.details = Some(format!(
                         "Precise Origin: {}",
                         host.format_followup_timestamp()
                     ));
@@ -2026,7 +2026,7 @@ impl PtpTracker {
         // Clean up old sync senders periodically
         self.cleanup_old_sync_senders();
 
-        Ok(Some(packet_info))
+        Ok(Some(packet))
     }
 
     fn parse_ptp_header(&self, data: &[u8]) -> Result<PtpHeader> {
