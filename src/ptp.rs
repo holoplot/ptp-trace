@@ -1430,7 +1430,7 @@ pub struct ProcessedPacket {
     pub correction_field: i64,
     pub log_message_interval: i8,
     pub details: Option<String>,
-    pub raw_packet_data: Vec<u8>,
+    pub _raw_packet_data: Vec<u8>,
 }
 
 impl PtpTracker {
@@ -1553,7 +1553,7 @@ impl PtpTracker {
             correction_field: header.correction_field,
             log_message_interval: header.log_message_interval,
             details: None,
-            raw_packet_data: raw_packet.data.clone(),
+            _raw_packet_data: raw_packet.data.clone(),
         };
 
         // Parse messages first if needed to avoid borrowing conflicts
