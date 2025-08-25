@@ -1288,17 +1288,18 @@ mod tests {
         let best_domain_2 = tracker.run_bmca_for_domain(2);
         assert_eq!(best_domain_2, None);
 
-        // Test get_all_primary_time_transmitters
-        let all_pts = tracker.get_all_primary_time_transmitters();
-        assert_eq!(all_pts.len(), 2);
-        assert!(all_pts.contains_key(&0));
-        assert!(all_pts.contains_key(&1));
+        // Test that we can get primary transmitters for both domains
+        let primary_domain_0 = tracker.get_primary_time_transmitter_for_domain(0);
+        let primary_domain_1 = tracker.get_primary_time_transmitter_for_domain(1);
+
+        assert!(primary_domain_0.is_some());
+        assert!(primary_domain_1.is_some());
         assert_eq!(
-            all_pts.get(&0).unwrap().clock_identity,
+            primary_domain_0.unwrap().clock_identity,
             "00:11:22:33:44:55:66:03"
         );
         assert_eq!(
-            all_pts.get(&1).unwrap().clock_identity,
+            primary_domain_1.unwrap().clock_identity,
             "00:11:22:33:44:55:66:02"
         );
     }
@@ -2483,20 +2484,6 @@ impl PtpTracker {
         } else {
             None
         }
-    }
-
-    /// Get all primary time transmitters across all domains
-    pub fn get_all_primary_time_transmitters(&self) -> HashMap<u8, &PtpHost> {
-        let mut result = HashMap::new();
-        let bmca_results = self.run_bmca();
-
-        for (domain_number, best_master_id) in bmca_results {
-            if let Some(host) = self.hosts.get(&best_master_id) {
-                result.insert(domain_number, host);
-            }
-        }
-
-        result
     }
 
     pub fn add_packet_to_host(&mut self, packet: ProcessedPacket) {
