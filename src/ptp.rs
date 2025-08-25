@@ -1,10 +1,65 @@
 use crate::oui_map::lookup_vendor_bytes;
 use anyhow::Result;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     net::IpAddr,
     time::{Duration, Instant},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TimestampSource {
+    Announce,
+    Sync,
+    FollowUp,
+}
+
+impl std::fmt::Display for TimestampSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TimestampSource::Announce => write!(f, "Announce"),
+            TimestampSource::Sync => write!(f, "Sync"),
+            TimestampSource::FollowUp => write!(f, "Follow-Up"),
+        }
+    }
+}
+
+/// A deque that maintains a maximum capacity by removing oldest elements
+#[derive(Debug, Clone)]
+pub struct BoundedVec<T> {
+    items: VecDeque<T>,
+    max_size: usize,
+}
+
+impl<T> BoundedVec<T> {
+    fn new(max_size: usize) -> Self {
+        Self {
+            items: VecDeque::new(),
+            max_size,
+        }
+    }
+
+    fn push(&mut self, item: T) {
+        self.items.push_back(item);
+        if self.items.len() > self.max_size {
+            self.items.pop_front();
+        }
+    }
+
+    fn to_vec(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        self.items.iter().cloned().collect()
+    }
+
+    fn clear(&mut self) {
+        self.items.clear();
+    }
+
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct PtpHost {
@@ -41,13 +96,13 @@ pub struct PtpHost {
     pub last_sync_timestamp: Option<Instant>,
     pub current_utc_offset: Option<i16>,
     pub last_origin_timestamp: Option<[u8; 10]>,
-    pub timestamp_source: Option<String>,
+    pub timestamp_source: Option<TimestampSource>,
     pub announce_origin_timestamp: Option<[u8; 10]>,
     pub sync_origin_timestamp: Option<[u8; 10]>,
     pub followup_origin_timestamp: Option<[u8; 10]>,
     pub last_version: Option<u8>,
     pub last_correction_field: Option<i64>,
-    pub packet_history: Vec<ProcessedPacket>,
+    pub packet_history: BoundedVec<ProcessedPacket>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -268,7 +323,7 @@ impl PtpHost {
             followup_origin_timestamp: None,
             last_version: None,
             last_correction_field: None,
-            packet_history: Vec::new(),
+            packet_history: BoundedVec::new(1000), // Default max history
         }
     }
 
@@ -460,7 +515,7 @@ impl PtpHost {
         self.total_message_count += 1;
         self.announce_origin_timestamp = Some(announce.origin_timestamp);
         self.last_origin_timestamp = Some(announce.origin_timestamp);
-        self.timestamp_source = Some("Announce".to_string());
+        self.timestamp_source = Some(TimestampSource::Announce);
     }
 
     /// Format a PTP timestamp as YYYY:MM:DD:HH:MM:SS:nanos
@@ -636,17 +691,20 @@ impl PtpHost {
         }
     }
 
-    pub fn add_packet(&mut self, packet: ProcessedPacket, max_history: usize) {
+    pub fn add_packet(&mut self, packet: ProcessedPacket) {
         self.packet_history.push(packet);
+    }
 
-        // Limit packet history size
-        if self.packet_history.len() > max_history {
-            self.packet_history.remove(0);
+    pub fn set_max_packet_history(&mut self, max_history: usize) {
+        self.packet_history.max_size = max_history;
+        // Truncate existing history if needed
+        while self.packet_history.len() > max_history {
+            self.packet_history.items.pop_front();
         }
     }
 
-    pub fn get_packet_history(&self) -> &[ProcessedPacket] {
-        &self.packet_history
+    pub fn get_packet_history(&self) -> Vec<ProcessedPacket> {
+        self.packet_history.to_vec()
     }
 
     pub fn clear_packet_history(&mut self) {
@@ -1746,7 +1804,7 @@ impl PtpTracker {
                 if let Some(sync_msg) = sync_msg {
                     host.sync_origin_timestamp = Some(sync_msg.origin_timestamp);
                     host.last_origin_timestamp = Some(sync_msg.origin_timestamp);
-                    host.timestamp_source = Some("Sync".to_string());
+                    host.timestamp_source = Some(TimestampSource::Sync);
                     packet_info.details = Some(format!("Origin: {}", host.format_sync_timestamp()));
                 }
 
@@ -1946,7 +2004,7 @@ impl PtpTracker {
                 if let Some(followup_msg) = followup_msg {
                     host.followup_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
                     host.last_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
-                    host.timestamp_source = Some("Follow-Up".to_string());
+                    host.timestamp_source = Some(TimestampSource::FollowUp);
                     packet_info.details = Some(format!(
                         "Precise Origin: {}",
                         host.format_followup_timestamp()
@@ -2464,10 +2522,16 @@ impl PtpTracker {
         result
     }
 
-    pub fn add_packet_to_host(&mut self, packet: ProcessedPacket, max_history: usize) {
+    pub fn add_packet_to_host(&mut self, packet: ProcessedPacket) {
         let clock_identity = &packet.clock_identity;
         if let Some(host) = self.hosts.get_mut(clock_identity) {
-            host.add_packet(packet, max_history);
+            host.add_packet(packet);
+        }
+    }
+
+    pub fn set_max_packet_history(&mut self, max_history: usize) {
+        for host in self.hosts.values_mut() {
+            host.set_max_packet_history(max_history);
         }
     }
 
@@ -2475,7 +2539,7 @@ impl PtpTracker {
         self.hosts.get(clock_identity)
     }
 
-    pub fn get_host_packet_history(&self, clock_identity: &str) -> Option<&[ProcessedPacket]> {
+    pub fn get_host_packet_history(&self, clock_identity: &str) -> Option<Vec<ProcessedPacket>> {
         self.hosts
             .get(clock_identity)
             .map(|host| host.get_packet_history())

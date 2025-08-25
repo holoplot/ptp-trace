@@ -123,7 +123,7 @@ impl App {
         let ptp_tracker = PtpTracker::new(raw_socket_receiver)?;
         let theme = crate::themes::Theme::new(theme_name);
 
-        Ok(Self {
+        let mut app = Self {
             state: AppState::Running,
             update_interval,
             debug,
@@ -142,7 +142,13 @@ impl App {
             selected_host_id: None,
             tree_view_enabled: false,
             paused: false,
-        })
+        };
+
+        // Set the max packet history on the tracker
+        app.ptp_tracker
+            .set_max_packet_history(app.max_packet_history);
+
+        Ok(app)
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -311,8 +317,7 @@ impl App {
 
         // Add packets to individual host histories
         for packet in processed_packets {
-            self.ptp_tracker
-                .add_packet_to_host(packet, self.max_packet_history);
+            self.ptp_tracker.add_packet_to_host(packet);
         }
 
         // Restore host selection to maintain stability when list changes
@@ -736,16 +741,14 @@ impl App {
         self.sort_ascending
     }
 
-    pub fn get_packet_history(&self) -> &[ProcessedPacket] {
+    pub fn get_packet_history(&self) -> Vec<ProcessedPacket> {
         // Return packets from the currently selected host
         if let Some(ref selected_host_id) = self.selected_host_id {
             if let Some(history) = self.ptp_tracker.get_host_packet_history(selected_host_id) {
                 return history;
             }
         }
-
-        // If no host is selected or host not found, return empty slice
-        &[]
+        Vec::new()
     }
 
     pub fn get_packet_scroll_offset(&self) -> usize {
