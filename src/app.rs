@@ -311,9 +311,8 @@ impl App {
 
         // Add packets to individual host histories
         for packet in processed_packets {
-            let clock_identity = packet.clock_identity.clone();
             self.ptp_tracker
-                .add_packet_to_host(&clock_identity, packet, self.max_packet_history);
+                .add_packet_to_host(packet, self.max_packet_history);
         }
 
         // Restore host selection to maintain stability when list changes

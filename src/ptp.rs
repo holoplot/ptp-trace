@@ -2476,12 +2476,8 @@ impl PtpTracker {
         result
     }
 
-    pub fn add_packet_to_host(
-        &mut self,
-        clock_identity: &str,
-        packet: ProcessedPacket,
-        max_history: usize,
-    ) {
+    pub fn add_packet_to_host(&mut self, packet: ProcessedPacket, max_history: usize) {
+        let clock_identity = &packet.clock_identity;
         if let Some(host) = self.hosts.get_mut(clock_identity) {
             host.add_packet(packet, max_history);
         }
