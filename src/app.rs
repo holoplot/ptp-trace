@@ -14,9 +14,11 @@ use std::{
 };
 use tokio::time;
 
+use crate::ptp::ProcessedPacket;
+
 use crate::{
     events::EventHandler,
-    ptp::{PtpHost, PtpMessageType, PtpState, PtpTracker},
+    ptp::{PtpHost, PtpState, PtpTracker},
     ui::ui,
 };
 
@@ -87,26 +89,6 @@ impl SortColumn {
             SortColumn::LastSeen => "Last Seen",
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct PacketInfo {
-    pub timestamp: Instant,
-    pub vlan_id: Option<u16>,
-    pub source_ip: String,
-    pub source_port: u16,
-    pub interface: String,
-    pub version: u8,
-    pub message_type: PtpMessageType,
-    pub message_length: u16,
-    pub clock_identity: String,
-    pub domain_number: u8,
-    pub sequence_id: u16,
-    pub flags: [u8; 2],
-    pub correction_field: i64,
-    pub log_message_interval: i8,
-    pub details: Option<String>,
-    pub raw_packet_data: Vec<u8>,
 }
 
 pub struct App {
@@ -329,29 +311,9 @@ impl App {
 
         // Add packets to individual host histories
         for packet in processed_packets {
-            let packet_info = PacketInfo {
-                timestamp: packet.timestamp,
-                vlan_id: packet.vlan_id,
-                source_ip: packet.source_ip.to_string(),
-                source_port: packet.source_port,
-                interface: packet.interface,
-                version: packet.version,
-                message_type: packet.message_type,
-                message_length: packet.message_length,
-                clock_identity: packet.clock_identity.clone(),
-                domain_number: packet.domain_number,
-                sequence_id: packet.sequence_id,
-                flags: packet.flags,
-                correction_field: packet.correction_field,
-                log_message_interval: packet.log_message_interval,
-                details: packet.details,
-                raw_packet_data: packet.raw_packet_data,
-            };
-            self.ptp_tracker.add_packet_to_host(
-                &packet.clock_identity,
-                packet_info,
-                self.max_packet_history,
-            );
+            let clock_identity = packet.clock_identity.clone();
+            self.ptp_tracker
+                .add_packet_to_host(&clock_identity, packet, self.max_packet_history);
         }
 
         // Restore host selection to maintain stability when list changes
@@ -818,7 +780,7 @@ impl App {
         self.sort_ascending
     }
 
-    pub fn get_packet_history(&self) -> &[PacketInfo] {
+    pub fn get_packet_history(&self) -> &[ProcessedPacket] {
         // Return packets from the currently selected host
         if let Some(ref selected_host_id) = self.selected_host_id {
             if let Some(history) = self.ptp_tracker.get_host_packet_history(selected_host_id) {

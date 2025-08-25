@@ -1,4 +1,3 @@
-use crate::app::PacketInfo;
 use crate::oui_map::lookup_vendor_bytes;
 use anyhow::Result;
 use std::{
@@ -48,7 +47,7 @@ pub struct PtpHost {
     pub followup_origin_timestamp: Option<[u8; 10]>,
     pub last_version: Option<u8>,
     pub last_correction_field: Option<i64>,
-    pub packet_history: Vec<PacketInfo>,
+    pub packet_history: Vec<ProcessedPacket>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -637,7 +636,7 @@ impl PtpHost {
         }
     }
 
-    pub fn add_packet(&mut self, packet: PacketInfo, max_history: usize) {
+    pub fn add_packet(&mut self, packet: ProcessedPacket, max_history: usize) {
         self.packet_history.push(packet);
 
         // Limit packet history size
@@ -646,7 +645,7 @@ impl PtpHost {
         }
     }
 
-    pub fn get_packet_history(&self) -> &[PacketInfo] {
+    pub fn get_packet_history(&self) -> &[ProcessedPacket] {
         &self.packet_history
     }
 
@@ -2480,7 +2479,7 @@ impl PtpTracker {
     pub fn add_packet_to_host(
         &mut self,
         clock_identity: &str,
-        packet: PacketInfo,
+        packet: ProcessedPacket,
         max_history: usize,
     ) {
         if let Some(host) = self.hosts.get_mut(clock_identity) {
@@ -2492,7 +2491,7 @@ impl PtpTracker {
         self.hosts.get(clock_identity)
     }
 
-    pub fn get_host_packet_history(&self, clock_identity: &str) -> Option<&[PacketInfo]> {
+    pub fn get_host_packet_history(&self, clock_identity: &str) -> Option<&[ProcessedPacket]> {
         self.hosts
             .get(clock_identity)
             .map(|host| host.get_packet_history())

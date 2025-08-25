@@ -1109,7 +1109,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                     Some(id) => id.to_string(),
                     None => "-".to_string(),
                 }),
-                Cell::from(packet.source_ip.clone()),
+                Cell::from(packet.source_ip.to_string()),
                 Cell::from(packet.source_port.to_string()),
                 Cell::from(packet.interface.clone()),
                 Cell::from(format!("v{}", packet.version)),
