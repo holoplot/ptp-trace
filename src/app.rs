@@ -252,6 +252,11 @@ impl App {
             KeyCode::Char('r') => {
                 self.update_data().await?;
             }
+            KeyCode::Char('\x0C') => {
+                // Ctrl+L - refresh/redraw screen (standard terminal convention)
+                // Force a complete redraw by updating data and clearing screen state
+                self.update_data().await?;
+            }
             KeyCode::Char('c') => {
                 self.ptp_tracker.clear_hosts();
                 self.ptp_tracker.clear_all_packet_histories();

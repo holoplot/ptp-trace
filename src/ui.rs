@@ -829,6 +829,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from("  r          - Refresh/rescan network"),
+        Line::from("  Ctrl+L     - Refresh/redraw screen"),
         Line::from("  c          - Clear all hosts and packet histories"),
         Line::from("  x          - Clear packet history for selected host"),
         Line::from("  p          - Toggle pause mode"),
