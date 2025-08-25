@@ -1318,18 +1318,6 @@ mod tests {
     }
     // Helper functions for tests
     fn create_test_tracker() -> PtpTracker {
-        use std::net::SocketAddr;
-        use tokio::net::UdpSocket;
-
-        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-        let rt = tokio::runtime::Runtime::new().unwrap();
-
-        let (event_socket, general_socket) = rt.block_on(async {
-            let event_socket = UdpSocket::bind(addr).await.unwrap();
-            let general_socket = UdpSocket::bind(addr).await.unwrap();
-            (event_socket, general_socket)
-        });
-
         // Create a dummy raw socket receiver for tests
         let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let raw_socket_receiver = crate::socket::RawSocketReceiver {
