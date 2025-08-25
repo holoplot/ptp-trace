@@ -323,6 +323,26 @@ impl App {
         Ok(())
     }
 
+    /// Helper method to update the selected host ID and reset packet scroll offset
+    fn update_selected_host(&mut self, index: usize) {
+        self.packet_scroll_offset = 0;
+        if self.tree_view_enabled {
+            if let Some(h_host) = self.get_hierarchical_hosts().get(index) {
+                self.selected_host_id = Some(h_host.host.clock_identity.clone());
+            } else {
+                // If index is out of bounds, clear selection
+                self.selected_host_id = None;
+            }
+        } else {
+            if let Some(host) = self.get_hosts().get(index) {
+                self.selected_host_id = Some(host.clock_identity.clone());
+            } else {
+                // If index is out of bounds, clear selection
+                self.selected_host_id = None;
+            }
+        }
+    }
+
     fn move_selection_up(&mut self) {
         let total_hosts = if self.tree_view_enabled {
             self.get_hierarchical_hosts().len()
@@ -332,18 +352,7 @@ impl App {
 
         if total_hosts > 0 && self.selected_index > 0 {
             self.selected_index -= 1;
-            // Update stored host ID and reset packet scroll
-            if self.tree_view_enabled {
-                if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
-                    self.selected_host_id = Some(h_host.host.clock_identity.clone());
-                    self.packet_scroll_offset = 0;
-                }
-            } else {
-                if let Some(host) = self.get_hosts().get(self.selected_index) {
-                    self.selected_host_id = Some(host.clock_identity.clone());
-                    self.packet_scroll_offset = 0;
-                }
-            }
+            self.update_selected_host(self.selected_index);
             // Scroll up immediately if we're at the top of the visible area
             if self.selected_index < self.host_scroll_offset {
                 self.host_scroll_offset = self.selected_index;
@@ -360,18 +369,7 @@ impl App {
 
         if total_hosts > 0 && self.selected_index < total_hosts - 1 {
             self.selected_index += 1;
-            // Update stored host ID and reset packet scroll
-            if self.tree_view_enabled {
-                if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
-                    self.selected_host_id = Some(h_host.host.clock_identity.clone());
-                    self.packet_scroll_offset = 0;
-                }
-            } else {
-                if let Some(host) = self.get_hosts().get(self.selected_index) {
-                    self.selected_host_id = Some(host.clock_identity.clone());
-                    self.packet_scroll_offset = 0;
-                }
-            }
+            self.update_selected_host(self.selected_index);
             // Scroll down immediately if we're at the bottom of the visible area
             let last_visible_index =
                 self.host_scroll_offset + self.visible_height.saturating_sub(1);
@@ -452,22 +450,12 @@ impl App {
         }
 
         // Move up by 10 items or to the beginning
+        let old_index = self.selected_index;
         self.selected_index = self.selected_index.saturating_sub(10);
-        // Update stored host ID
-        if self.tree_view_enabled {
-            if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
-                self.selected_host_id = Some(h_host.host.clock_identity.clone());
-                self.packet_scroll_offset = 0;
-            }
-        } else {
-            if let Some(host) = self.get_hosts().get(self.selected_index) {
-                self.selected_host_id = Some(host.clock_identity.clone());
-                self.packet_scroll_offset = 0;
-            }
-        }
-        // Adjust scroll to keep selection in view
-        if self.selected_index < self.host_scroll_offset {
-            self.host_scroll_offset = self.selected_index;
+
+        if self.selected_index != old_index {
+            self.update_selected_host(self.selected_index);
+            self.ensure_host_visible(20);
         }
     }
 
@@ -483,20 +471,11 @@ impl App {
         }
 
         // Move down by 10 items or to the end
-        let max_index = total_hosts.saturating_sub(1);
-        self.selected_index = (self.selected_index + 10).min(max_index);
+        let old_index = self.selected_index;
+        self.selected_index = (self.selected_index + 10).min(total_hosts - 1);
 
-        // Update stored host ID
-        if self.tree_view_enabled {
-            if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
-                self.selected_host_id = Some(h_host.host.clock_identity.clone());
-                self.packet_scroll_offset = 0;
-            }
-        } else {
-            if let Some(host) = self.get_hosts().get(self.selected_index) {
-                self.selected_host_id = Some(host.clock_identity.clone());
-                self.packet_scroll_offset = 0;
-            }
+        if self.selected_index != old_index {
+            self.update_selected_host(self.selected_index);
         }
 
         // Adjust scroll to keep selection in view
@@ -517,19 +496,7 @@ impl App {
     pub fn move_selection_to_top(&mut self) {
         self.selected_index = 0;
         self.host_scroll_offset = 0;
-
-        // Update stored host ID
-        if self.tree_view_enabled {
-            if let Some(h_host) = self.get_hierarchical_hosts().get(0) {
-                self.selected_host_id = Some(h_host.host.clock_identity.clone());
-                self.packet_scroll_offset = 0;
-            }
-        } else {
-            if let Some(host) = self.get_hosts().get(0) {
-                self.selected_host_id = Some(host.clock_identity.clone());
-                self.packet_scroll_offset = 0;
-            }
-        }
+        self.update_selected_host(0);
     }
 
     pub fn move_selection_to_bottom(&mut self, visible_height: usize) {
@@ -539,21 +506,11 @@ impl App {
             self.ptp_tracker.get_hosts().len()
         };
 
-        if total_hosts > 0 && visible_height > 0 {
-            self.selected_index = total_hosts.saturating_sub(1);
-            // Update stored host ID
-            if self.tree_view_enabled {
-                if let Some(h_host) = self.get_hierarchical_hosts().get(self.selected_index) {
-                    self.selected_host_id = Some(h_host.host.clock_identity.clone());
-                    self.packet_scroll_offset = 0;
-                }
-            } else {
-                if let Some(host) = self.get_hosts().get(self.selected_index) {
-                    self.selected_host_id = Some(host.clock_identity.clone());
-                    self.packet_scroll_offset = 0;
-                }
-            }
-            // Scroll to show the bottom, with selected item at the bottom of visible area
+        if total_hosts > 0 {
+            self.selected_index = total_hosts - 1;
+            self.update_selected_host(self.selected_index);
+
+            // Set scroll to show the bottom of the list
             let max_scroll_offset = if total_hosts > visible_height {
                 total_hosts - visible_height
             } else {
@@ -849,12 +806,9 @@ impl App {
                     self.selected_index
                 };
 
-                // Get the host at the new index for updating stored ID
-                let new_host_id = hosts.get(new_index).map(|h| h.clock_identity.clone());
-
-                // Now update the fields
+                // Update the fields
                 self.selected_index = new_index;
-                self.selected_host_id = new_host_id;
+                self.update_selected_host(new_index);
             }
         } else {
             // No stored selection, ensure current index is valid
@@ -867,14 +821,9 @@ impl App {
                     self.selected_index
                 };
 
-                // Get the host at the new index for storing ID
-                let new_host_id = hierarchical_hosts
-                    .get(new_index)
-                    .map(|h| h.host.clock_identity.clone());
-
                 // Update the fields
                 self.selected_index = new_index;
-                self.selected_host_id = new_host_id;
+                self.update_selected_host(new_index);
             } else {
                 let hosts = self.get_hosts();
                 let hosts_len = hosts.len();
@@ -884,12 +833,9 @@ impl App {
                     self.selected_index
                 };
 
-                // Get the host at the new index for storing ID
-                let new_host_id = hosts.get(new_index).map(|h| h.clock_identity.clone());
-
                 // Update the fields
                 self.selected_index = new_index;
-                self.selected_host_id = new_host_id;
+                self.update_selected_host(new_index);
             }
         }
     }
