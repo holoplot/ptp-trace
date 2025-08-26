@@ -33,7 +33,6 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 
 ### 📋 **Host Management**
 - 📝 Comprehensive host table with sortable columns
-- 🌳 Hierarchical tree view showing transmitter-receiver relationships
 - 🔢 Multiple sort options (State, IP, Clock Identity, Domain, etc.)
 - 🎯 Selection tracking across operations
 - 📊 Quality indicators and confidence levels
@@ -115,7 +114,6 @@ sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix
 ### 📊 **Table Operations**
 - `s` - 🔄 Cycle sort columns
 - `S` - ↕️ Toggle sort direction
-- `t` - 🌳 Toggle hierarchical tree view
 - Green headers indicate active sort column
 
 ### 🎬 **Actions**
@@ -140,7 +138,6 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 - 🖼️ Complete terminal UI framework
 - 🎮 Application structure and navigation
 - 📊 Host table with sorting and scrolling
-- 🌳 Hierarchical tree view for PTP topology visualization
 - 📦 Packet history with detailed view
 - 🎨 Multiple theme support
 - ⌨️ Comprehensive keyboard controls

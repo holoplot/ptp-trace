@@ -3,11 +3,11 @@ use clap::Parser;
 use std::time::Duration;
 
 mod app;
-mod events;
 mod oui_map;
 mod ptp;
 mod socket;
 mod themes;
+mod types;
 mod ui;
 mod version;
 

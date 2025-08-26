@@ -2,14 +2,6 @@
 //!
 //! This module implements packet capture using libpcap/pcap for cross-platform
 //! promiscuous mode support. Works on Linux, macOS, and Windows.
-//!
-//! Key features:
-//! - Cross-platform promiscuous mode using pcap
-//! - Multicast group membership (essential for receiving multicast PTP packets)
-//! - Full packet data preservation alongside parsed PTP content
-//! - VLAN header handling (skipped for now)
-//! - Per-interface packet tracking
-//! - Smart interface filtering (excludes virtual interfaces by default)
 
 use anyhow::Result;
 use pcap::{Capture, Device, Linktype};
@@ -26,10 +18,8 @@ const PTP_MULTICAST_ADDR: &str = "224.0.1.129";
 #[derive(Debug, Clone)]
 pub struct RawPacket {
     pub data: Vec<u8>,
-    pub source_ip: Ipv4Addr,
-    pub _dest_ip: Ipv4Addr,
-    pub source_port: u16,
-    pub dest_port: u16,
+    pub source_addr: std::net::SocketAddr,
+    pub _dest_addr: std::net::SocketAddr,
     pub vlan_id: Option<u16>,
     pub interface_name: String,
     pub ptp_payload: Vec<u8>,
@@ -238,12 +228,13 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
     let ptp_payload_length = std::cmp::min(udp_length - 8, packet_data.len() - ptp_offset);
     let ptp_payload = packet_data[ptp_offset..ptp_offset + ptp_payload_length].to_vec();
 
+    let source_addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(source_ip, source_port));
+    let dest_addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(dest_ip, dest_port));
+
     Some(RawPacket {
         data: packet_data.to_vec(),
-        source_ip,
-        _dest_ip: dest_ip,
-        source_port,
-        dest_port,
+        source_addr,
+        _dest_addr: dest_addr,
         vlan_id,
         interface_name: interface_name.to_string(),
         ptp_payload,

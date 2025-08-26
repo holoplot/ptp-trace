@@ -14,11 +14,10 @@ use std::{
 };
 use tokio::time;
 
-use crate::ptp::ProcessedPacket;
+use crate::types::{ClockIdentity, ProcessedPacket};
 
 use crate::{
-    events::EventHandler,
-    ptp::{PtpHost, PtpState, PtpTracker},
+    ptp::{PtpHost, PtpHostState, PtpTracker},
     ui::ui,
 };
 
@@ -39,12 +38,6 @@ pub enum SortColumn {
     SelectedTransmitter,
     MessageCount,
     LastSeen,
-}
-
-#[derive(Debug, Clone)]
-pub struct HierarchicalHost<'a> {
-    pub host: &'a PtpHost,
-    pub depth: usize,
 }
 
 impl SortColumn {
@@ -108,8 +101,7 @@ pub struct App {
     pub packet_history_expanded: bool,
     pub sort_column: SortColumn,
     pub sort_ascending: bool,
-    pub selected_host_id: Option<String>,
-    pub tree_view_enabled: bool,
+    pub selected_host_id: Option<ClockIdentity>,
     pub paused: bool,
 }
 
@@ -140,7 +132,6 @@ impl App {
             sort_column: SortColumn::ClockIdentity,
             sort_ascending: true,
             selected_host_id: None,
-            tree_view_enabled: false,
             paused: false,
         };
 
@@ -159,11 +150,8 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        // Create event handler
-        let mut event_handler = EventHandler::new();
-
         // Main application loop
-        let result = self.run_app(&mut terminal, &mut event_handler).await;
+        let result = self.run_app(&mut terminal).await;
 
         // Restore terminal
         disable_raw_mode()?;
@@ -173,11 +161,7 @@ impl App {
         result
     }
 
-    async fn run_app<B: Backend>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-        _event_handler: &mut EventHandler,
-    ) -> Result<()> {
+    async fn run_app<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         let mut last_tick = Instant::now();
 
         loop {
@@ -291,15 +275,12 @@ impl App {
                 self.cycle_sort_column_previous();
             }
             KeyCode::Char('t') => {
-                self.tree_view_enabled = !self.tree_view_enabled;
-
                 // Restore selection in the new view mode
                 self.restore_host_selection();
             }
             KeyCode::Char('x') => {
                 self.clear_packet_history();
             }
-
             _ => {
                 // Other keys - no action needed
             }
@@ -313,46 +294,27 @@ impl App {
             return Ok(());
         }
 
-        let processed_packets = self.ptp_tracker.scan_network().await?;
-
-        // Add packets to individual host histories
-        for packet in processed_packets {
-            self.ptp_tracker.add_packet_to_host(packet);
-        }
-
+        self.ptp_tracker.scan_network().await;
         // Restore host selection to maintain stability when list changes
         self.restore_host_selection();
-
         self.last_update = Instant::now();
+
         Ok(())
     }
 
     /// Helper method to update the selected host ID and reset packet scroll offset
     fn update_selected_host(&mut self, index: usize) {
         self.packet_scroll_offset = 0;
-        if self.tree_view_enabled {
-            if let Some(h_host) = self.get_hierarchical_hosts().get(index) {
-                self.selected_host_id = Some(h_host.host.clock_identity.clone());
-            } else {
-                // If index is out of bounds, clear selection
-                self.selected_host_id = None;
-            }
+        if let Some(host) = self.get_hosts().get(index) {
+            self.selected_host_id = Some(host.clock_identity.clone());
         } else {
-            if let Some(host) = self.get_hosts().get(index) {
-                self.selected_host_id = Some(host.clock_identity.clone());
-            } else {
-                // If index is out of bounds, clear selection
-                self.selected_host_id = None;
-            }
+            // If index is out of bounds, clear selection
+            self.selected_host_id = None;
         }
     }
 
     fn move_selection_up(&mut self) {
-        let total_hosts = if self.tree_view_enabled {
-            self.get_hierarchical_hosts().len()
-        } else {
-            self.ptp_tracker.get_hosts().len()
-        };
+        let total_hosts = self.ptp_tracker.get_hosts().len();
 
         if total_hosts > 0 && self.selected_index > 0 {
             self.selected_index -= 1;
@@ -365,11 +327,7 @@ impl App {
     }
 
     fn move_selection_down(&mut self) {
-        let total_hosts = if self.tree_view_enabled {
-            self.get_hierarchical_hosts().len()
-        } else {
-            self.ptp_tracker.get_hosts().len()
-        };
+        let total_hosts = self.ptp_tracker.get_hosts().len();
 
         if total_hosts > 0 && self.selected_index < total_hosts - 1 {
             self.selected_index += 1;
@@ -391,11 +349,7 @@ impl App {
     }
 
     pub fn ensure_host_visible(&mut self, visible_height: usize) {
-        let total_hosts = if self.tree_view_enabled {
-            self.get_hierarchical_hosts().len()
-        } else {
-            self.ptp_tracker.get_hosts().len()
-        };
+        let total_hosts = self.ptp_tracker.get_hosts().len();
 
         if total_hosts == 0 || visible_height == 0 {
             return;
@@ -443,13 +397,7 @@ impl App {
     }
 
     pub fn move_selection_page_up(&mut self) {
-        let total_hosts = if self.tree_view_enabled {
-            self.get_hierarchical_hosts().len()
-        } else {
-            self.ptp_tracker.get_hosts().len()
-        };
-
-        if total_hosts == 0 {
+        if self.ptp_tracker.get_hosts().len() == 0 {
             return;
         }
 
@@ -464,11 +412,7 @@ impl App {
     }
 
     pub fn move_selection_page_down(&mut self, visible_height: usize) {
-        let total_hosts = if self.tree_view_enabled {
-            self.get_hierarchical_hosts().len()
-        } else {
-            self.ptp_tracker.get_hosts().len()
-        };
+        let total_hosts = self.ptp_tracker.get_hosts().len();
 
         if total_hosts == 0 || visible_height == 0 {
             return;
@@ -504,11 +448,7 @@ impl App {
     }
 
     pub fn move_selection_to_bottom(&mut self, visible_height: usize) {
-        let total_hosts = if self.tree_view_enabled {
-            self.get_hierarchical_hosts().len()
-        } else {
-            self.ptp_tracker.get_hosts().len()
-        };
+        let total_hosts = self.ptp_tracker.get_hosts().len();
 
         if total_hosts > 0 {
             self.selected_index = total_hosts - 1;
@@ -524,138 +464,6 @@ impl App {
         }
     }
 
-    fn build_host_hierarchy(&self) -> Vec<HierarchicalHost> {
-        let hosts = self.ptp_tracker.get_hosts();
-        let mut hierarchical_hosts = Vec::new();
-        let mut visited = std::collections::HashSet::new();
-
-        // Create a map for quick lookup by clock identity
-        let host_map: std::collections::HashMap<&str, &PtpHost> = hosts
-            .iter()
-            .map(|host| (host.clock_identity.as_str(), *host))
-            .collect();
-
-        // Find root hosts (those without a transmitter or whose transmitter is themselves)
-        let mut roots: Vec<&PtpHost> = hosts
-            .iter()
-            .filter(|host| {
-                host.selected_transmitter_id.is_none()
-                    || host.selected_transmitter_id.as_ref() == Some(&host.clock_identity)
-            })
-            .copied()
-            .collect();
-
-        // Sort roots by the current sort criteria
-        self.sort_hosts(&mut roots);
-
-        // Build hierarchy recursively
-        for root in roots {
-            if !visited.contains(&root.clock_identity) {
-                self.add_host_and_children(
-                    root,
-                    &host_map,
-                    &mut hierarchical_hosts,
-                    &mut visited,
-                    0,
-                );
-            }
-        }
-
-        // Add any orphaned hosts (those whose transmitter is not found)
-        for host in hosts.iter() {
-            if !visited.contains(&host.clock_identity) {
-                hierarchical_hosts.push(HierarchicalHost { host, depth: 0 });
-                visited.insert(host.clock_identity.clone());
-            }
-        }
-
-        hierarchical_hosts
-    }
-
-    fn add_host_and_children<'a>(
-        &self,
-        host: &'a PtpHost,
-        host_map: &std::collections::HashMap<&str, &'a PtpHost>,
-        hierarchical_hosts: &mut Vec<HierarchicalHost<'a>>,
-        visited: &mut std::collections::HashSet<String>,
-        depth: usize,
-    ) {
-        if visited.contains(&host.clock_identity) {
-            return; // Avoid cycles
-        }
-
-        visited.insert(host.clock_identity.clone());
-        hierarchical_hosts.push(HierarchicalHost { host, depth });
-
-        // Find children (hosts that have this host as their selected transmitter)
-        let mut children: Vec<&PtpHost> = host_map
-            .values()
-            .filter(|child| {
-                child.selected_transmitter_id.as_ref() == Some(&host.clock_identity)
-                    && child.clock_identity != host.clock_identity
-                    && !visited.contains(&child.clock_identity)
-            })
-            .copied()
-            .collect();
-
-        // Sort children by the current sort criteria
-        self.sort_hosts(&mut children);
-
-        // Recursively add children
-        for child in children {
-            self.add_host_and_children(child, host_map, hierarchical_hosts, visited, depth + 1);
-        }
-    }
-
-    fn sort_hosts(&self, hosts: &mut Vec<&PtpHost>) {
-        hosts.sort_by(|a, b| {
-            let comparison = match self.sort_column {
-                SortColumn::ClockIdentity => a.clock_identity.cmp(&b.clock_identity),
-                SortColumn::IpAddress => {
-                    let a_ip = a.get_primary_ip();
-                    let b_ip = b.get_primary_ip();
-                    a_ip.cmp(&b_ip)
-                }
-                SortColumn::State => {
-                    let a_state_order = match a.state {
-                        PtpState::Transmitter => 0,
-                        PtpState::Receiver => 1,
-                        PtpState::Passive => 2,
-                        PtpState::Listening => 3,
-                        _ => 4,
-                    };
-                    let b_state_order = match b.state {
-                        PtpState::Transmitter => 0,
-                        PtpState::Receiver => 1,
-                        PtpState::Passive => 2,
-                        PtpState::Listening => 3,
-                        _ => 4,
-                    };
-                    a_state_order.cmp(&b_state_order)
-                }
-                SortColumn::Domain => a.domain_number.cmp(&b.domain_number),
-                SortColumn::Priority => a.priority1.unwrap_or(255).cmp(&b.priority1.unwrap_or(255)),
-                SortColumn::ClockClass => a
-                    .clock_class
-                    .unwrap_or(255)
-                    .cmp(&b.clock_class.unwrap_or(255)),
-                SortColumn::SelectedTransmitter => {
-                    let a = a.selected_transmitter_id.as_deref().unwrap_or("");
-                    let b = b.selected_transmitter_id.as_deref().unwrap_or("");
-                    a.cmp(b)
-                }
-                SortColumn::MessageCount => a.total_message_count.cmp(&b.total_message_count),
-                SortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
-            };
-
-            if self.sort_ascending {
-                comparison
-            } else {
-                comparison.reverse()
-            }
-        });
-    }
-
     pub fn get_hosts(&self) -> Vec<&PtpHost> {
         let mut hosts = self.ptp_tracker.get_hosts();
 
@@ -669,34 +477,65 @@ impl App {
                     a_ip.cmp(&b_ip)
                 }
                 SortColumn::State => {
-                    let a_state_order = match a.state {
-                        PtpState::Transmitter => 0,
-                        PtpState::Receiver => 1,
-                        PtpState::Passive => 2,
-                        PtpState::Listening => 3,
-                        _ => 4,
+                    let a_state_order = match &a.state {
+                        PtpHostState::TimeTransmitter(_) => 0,
+                        PtpHostState::TimeReceiver(_) => 1,
+                        PtpHostState::Listening => 2,
                     };
-                    let b_state_order = match b.state {
-                        PtpState::Transmitter => 0,
-                        PtpState::Receiver => 1,
-                        PtpState::Passive => 2,
-                        PtpState::Listening => 3,
-                        _ => 4,
+                    let b_state_order = match &b.state {
+                        PtpHostState::TimeTransmitter(_) => 0,
+                        PtpHostState::TimeReceiver(_) => 1,
+                        PtpHostState::Listening => 2,
                     };
                     a_state_order.cmp(&b_state_order)
                 }
                 SortColumn::Domain => a.domain_number.cmp(&b.domain_number),
-                SortColumn::Priority => a.priority1.unwrap_or(255).cmp(&b.priority1.unwrap_or(255)),
-                SortColumn::ClockClass => a
-                    .clock_class
-                    .unwrap_or(255)
-                    .cmp(&b.clock_class.unwrap_or(255)),
-                SortColumn::SelectedTransmitter => {
-                    let a = a.selected_transmitter_id.as_deref().unwrap_or("");
-                    let b = b.selected_transmitter_id.as_deref().unwrap_or("");
-                    a.cmp(b)
+                SortColumn::Priority => {
+                    let a_priority = match &a.state {
+                        PtpHostState::TimeTransmitter(s) => s.priority1.unwrap_or(255),
+                        _ => 255,
+                    };
+                    let b_priority = match &b.state {
+                        PtpHostState::TimeTransmitter(s) => s.priority1.unwrap_or(255),
+                        _ => 255,
+                    };
+                    a_priority.cmp(&b_priority)
                 }
-                SortColumn::MessageCount => a.total_message_count.cmp(&b.total_message_count),
+                SortColumn::ClockClass => {
+                    let a_clock_class = match &a.state {
+                        PtpHostState::TimeTransmitter(s) => {
+                            s.clock_class.map_or(255, |c| c.class())
+                        }
+                        _ => 255,
+                    };
+                    let b_clock_class = match &b.state {
+                        PtpHostState::TimeTransmitter(s) => {
+                            s.clock_class.map_or(255, |c| c.class())
+                        }
+                        _ => 255,
+                    };
+                    a_clock_class.cmp(&b_clock_class)
+                }
+                SortColumn::SelectedTransmitter => {
+                    let a = match &a.state {
+                        PtpHostState::TimeReceiver(s) => {
+                            s.selected_transmitter_identity.unwrap_or_default()
+                        }
+                        _ => ClockIdentity::default(),
+                    };
+
+                    let b = match &b.state {
+                        PtpHostState::TimeReceiver(s) => {
+                            s.selected_transmitter_identity.unwrap_or_default()
+                        }
+                        _ => ClockIdentity::default(),
+                    };
+
+                    a.cmp(&b)
+                }
+                SortColumn::MessageCount => a
+                    .total_messages_sent_count
+                    .cmp(&b.total_messages_sent_count),
                 SortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
             };
 
@@ -708,10 +547,6 @@ impl App {
         });
 
         hosts
-    }
-
-    pub fn get_hierarchical_hosts(&self) -> Vec<HierarchicalHost> {
-        self.build_host_hierarchy()
     }
 
     pub fn get_selected_index(&self) -> usize {
@@ -744,7 +579,7 @@ impl App {
     pub fn get_packet_history(&self) -> Vec<ProcessedPacket> {
         // Return packets from the currently selected host
         if let Some(ref selected_host_id) = self.selected_host_id {
-            if let Some(history) = self.ptp_tracker.get_host_packet_history(selected_host_id) {
+            if let Some(history) = self.ptp_tracker.get_host_packet_history(*selected_host_id) {
                 return history;
             }
         }
@@ -755,26 +590,14 @@ impl App {
         self.packet_scroll_offset
     }
 
-    /// Helper method to find host index by clock identity
-    fn find_host_index(&self, clock_identity: &str) -> Option<usize> {
-        if self.tree_view_enabled {
-            self.get_hierarchical_hosts()
-                .iter()
-                .position(|h_host| h_host.host.clock_identity == clock_identity)
-        } else {
-            self.get_hosts()
-                .iter()
-                .position(|host| host.clock_identity == clock_identity)
-        }
+    fn find_host_index(&self, clock_identity: ClockIdentity) -> Option<usize> {
+        self.get_hosts()
+            .iter()
+            .position(|host| host.clock_identity == clock_identity)
     }
 
-    /// Helper method to get current host list length
     fn get_host_count(&self) -> usize {
-        if self.tree_view_enabled {
-            self.get_hierarchical_hosts().len()
-        } else {
-            self.get_hosts().len()
-        }
+        self.ptp_tracker.get_hosts().len()
     }
 
     /// Helper method to clamp index within valid bounds and update selection
@@ -795,7 +618,7 @@ impl App {
     fn restore_host_selection(&mut self) {
         // If we have a stored host ID, try to find it in the current list
         if let Some(ref stored_host_id) = self.selected_host_id.clone() {
-            if let Some(found_index) = self.find_host_index(stored_host_id) {
+            if let Some(found_index) = self.find_host_index(*stored_host_id) {
                 // Found the stored host, select it
                 self.selected_index = found_index;
                 self.ensure_host_visible(20);
@@ -809,7 +632,8 @@ impl App {
 
     pub fn clear_packet_history(&mut self) {
         if let Some(ref selected_host_id) = self.selected_host_id {
-            self.ptp_tracker.clear_host_packet_history(selected_host_id);
+            self.ptp_tracker
+                .clear_host_packet_history(*selected_host_id);
         } else {
             // If no host is selected, clear all histories
             self.ptp_tracker.clear_all_packet_histories();

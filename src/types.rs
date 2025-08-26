@@ -1,0 +1,961 @@
+use crate::oui_map::lookup_vendor_bytes;
+use std::fmt::Display;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PtpTimestamp {
+    pub seconds: u64,
+    pub nanoseconds: u32,
+}
+
+impl TryFrom<&[u8]> for PtpTimestamp {
+    type Error = anyhow::Error;
+
+    fn try_from(b: &[u8]) -> Result<Self, Self::Error> {
+        if b.len() != 10 {
+            Err(anyhow::anyhow!("Packet too short for PTP timestamp"))
+        } else {
+            Ok(Self {
+                seconds: u64::from_be_bytes([0, 0, b[0], b[1], b[2], b[3], b[4], b[5]]),
+                nanoseconds: u32::from_be_bytes([b[6], b[7], b[8], b[9]]),
+            })
+        }
+    }
+}
+
+impl Display for PtpTimestamp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use chrono::{DateTime, Datelike, Timelike};
+
+        // PTP uses TAI (International Atomic Time) - convert to UTC for display
+        // Current leap seconds offset (as of 2024): 37 seconds
+        const LEAP_SECONDS_OFFSET: u64 = 37;
+
+        // Convert TAI to UTC and format as datetime if within reasonable bounds
+        let utc_seconds = self.seconds.saturating_sub(LEAP_SECONDS_OFFSET);
+
+        if self.seconds == 0 && self.nanoseconds == 0 {
+            write!(f, "0")
+        } else if let Some(dt) = DateTime::from_timestamp(utc_seconds as i64, self.nanoseconds) {
+            write!(
+                f,
+                "{}-{:02}-{:02} {:02}:{:02}:{:02}.{:09}",
+                dt.year(),
+                dt.month(),
+                dt.day(),
+                dt.hour(),
+                dt.minute(),
+                dt.second(),
+                self.nanoseconds
+            )
+        } else {
+            // Fallback for invalid timestamps
+            write!(f, "UTC: {}.{:09}", utc_seconds, self.nanoseconds)
+        }
+    }
+}
+
+pub fn format_timestamp(timestamp: Option<PtpTimestamp>) -> String {
+    match timestamp {
+        Some(ts) => ts.to_string(),
+        None => "N/A".to_string(),
+    }
+}
+
+#[test]
+fn test_ptp_timestamp_formatting() {
+    // Test a known timestamp: January 1, 2024 00:00:00 UTC
+    // UTC timestamp: 1704067200 seconds since Unix epoch
+    // PTP uses TAI: TAI = UTC + leap_seconds_offset
+    // TAI timestamp: 1704067200 + 37 = 1704067237 seconds since PTP epoch (1970 TAI)
+    let mut timestamp = [0u8; 10];
+
+    // Set seconds (big-endian, 6 bytes) - this is TAI time
+    let ptp_seconds: u64 = 1704067237;
+    timestamp[0] = ((ptp_seconds >> 40) & 0xff) as u8;
+    timestamp[1] = ((ptp_seconds >> 32) & 0xff) as u8;
+    timestamp[2] = ((ptp_seconds >> 24) & 0xff) as u8;
+    timestamp[3] = ((ptp_seconds >> 16) & 0xff) as u8;
+    timestamp[4] = ((ptp_seconds >> 8) & 0xff) as u8;
+    timestamp[5] = (ptp_seconds & 0xff) as u8;
+
+    // Set nanoseconds (big-endian, 4 bytes) - 123456789 nanoseconds
+    let nanos: u32 = 123456789;
+    timestamp[6] = ((nanos >> 24) & 0xff) as u8;
+    timestamp[7] = ((nanos >> 16) & 0xff) as u8;
+    timestamp[8] = ((nanos >> 8) & 0xff) as u8;
+    timestamp[9] = (nanos & 0xff) as u8;
+
+    let formatted = PtpTimestamp::try_from(&timestamp[..]).unwrap().to_string();
+    assert_eq!(formatted, "2024-01-01 00:00:00.123456789");
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PtpMessageType {
+    Sync = 0x0,
+    DelayReq = 0x1,   // End-to-end delay request (transmitter-receiver mode)
+    PDelayReq = 0x2,  // Peer delay request (peer-to-peer mode)
+    PDelayResp = 0x3, // Peer delay response (peer-to-peer mode)
+    FollowUp = 0x8,
+    DelayResp = 0x9,          // End-to-end delay response (transmitter-receiver mode)
+    PDelayRespFollowUp = 0xa, // Peer delay response follow-up (peer-to-peer mode)
+    Announce = 0xb,
+    Signaling = 0xc,
+    Management = 0xd,
+}
+
+impl TryFrom<u8> for PtpMessageType {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x0 => Ok(PtpMessageType::Sync),
+            0x1 => Ok(PtpMessageType::DelayReq),
+            0x2 => Ok(PtpMessageType::PDelayReq),
+            0x3 => Ok(PtpMessageType::PDelayResp),
+            0x8 => Ok(PtpMessageType::FollowUp),
+            0x9 => Ok(PtpMessageType::DelayResp),
+            0xa => Ok(PtpMessageType::PDelayRespFollowUp),
+            0xb => Ok(PtpMessageType::Announce),
+            0xc => Ok(PtpMessageType::Signaling),
+            0xd => Ok(PtpMessageType::Management),
+            _ => Err(anyhow::anyhow!("Unknown PTP message type")),
+        }
+    }
+}
+
+impl Display for PtpMessageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PtpMessageType::Sync => write!(f, "SYNC"),
+            PtpMessageType::DelayReq => write!(f, "DELAY_REQ"),
+            PtpMessageType::PDelayReq => write!(f, "PDELAY_REQ"),
+            PtpMessageType::PDelayResp => write!(f, "PDELAY_RESP"),
+            PtpMessageType::FollowUp => write!(f, "FOLLOW_UP"),
+            PtpMessageType::DelayResp => write!(f, "DELAY_RESP"),
+            PtpMessageType::PDelayRespFollowUp => write!(f, "PDELAY_RESP_FU"),
+            PtpMessageType::Announce => write!(f, "ANNOUNCE"),
+            PtpMessageType::Signaling => write!(f, "SIGNALING"),
+            PtpMessageType::Management => write!(f, "MANAGEMENT"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtpVersion {
+    V1,
+    V2,
+}
+
+impl TryFrom<u8> for PtpVersion {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x1 => Ok(PtpVersion::V1),
+            0x2 => Ok(PtpVersion::V2),
+            _ => Err(anyhow::anyhow!("Unknown PTP version")),
+        }
+    }
+}
+
+impl Display for PtpVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PtpVersion::V1 => write!(f, "v1"),
+            PtpVersion::V2 => write!(f, "v2"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, Ord, PartialOrd)]
+pub struct ClockIdentity {
+    pub clock_id: [u8; 8],
+}
+
+impl ClockIdentity {
+    /// Extract vendor name from clock identity string using OUI lookup
+    pub fn extract_vendor_name(&self) -> Option<&'static str> {
+        let mac_bytes: [u8; 6] = [
+            self.clock_id[0],
+            self.clock_id[1],
+            self.clock_id[2],
+            self.clock_id[5],
+            self.clock_id[6],
+            self.clock_id[7],
+        ];
+
+        lookup_vendor_bytes(mac_bytes)
+    }
+}
+
+impl TryFrom<&[u8]> for ClockIdentity {
+    type Error = anyhow::Error;
+
+    fn try_from(b: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self {
+            clock_id: b.try_into()?,
+        })
+    }
+}
+
+#[test]
+fn test_oui_vendor_lookup() {
+    // Test Cisco OUI-24 (00:00:0c)
+    let b: [u8; 8] = [0x00, 0x00, 0x0c, 0x11, 0x22, 0x33, 0x44, 0x55];
+    assert_eq!(
+        ClockIdentity::try_from(&b[..])
+            .unwrap()
+            .extract_vendor_name(),
+        Some("Cisco Systems, Inc")
+    );
+
+    // Test unknown OUI
+    let b: [u8; 8] = [0xff, 0xff, 0xff, 0x11, 0x22, 0x33, 0x44, 0x55];
+    assert_eq!(
+        ClockIdentity::try_from(&b[..])
+            .unwrap()
+            .extract_vendor_name(),
+        None
+    );
+}
+
+impl Default for ClockIdentity {
+    fn default() -> Self {
+        Self { clock_id: [0; 8] }
+    }
+}
+
+impl Display for ClockIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            self.clock_id[0],
+            self.clock_id[1],
+            self.clock_id[2],
+            self.clock_id[3],
+            self.clock_id[4],
+            self.clock_id[5],
+            self.clock_id[6],
+            self.clock_id[7],
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PtpClockClass {
+    class: u8,
+}
+
+impl PtpClockClass {
+    pub fn new(class: u8) -> Self {
+        Self { class }
+    }
+
+    pub fn class(&self) -> u8 {
+        self.class
+    }
+}
+
+impl Display for PtpClockClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let description = match self.class {
+            0..=5 => "Reserved",
+            6 => "Primary reference (GPS, atomic clock, etc.)",
+            7 => "Primary reference (degraded)",
+            8..=12 => "Reserved",
+            13 => "Application specific",
+            14 => "Application specific (degraded)",
+            15..=51 => "Reserved",
+            52 => "Class 7 (degraded A)",
+            53..=57 => "Reserved",
+            58 => "Class 14 (degraded A)",
+            59..=67 => "Reserved",
+            68..=122 => "Alternate PTP profile",
+            123..=132 => "Reserved",
+            133..=170 => "Alternate PTP profile",
+            171..=186 => "Reserved",
+            187 => "Class 7 (degraded B)",
+            188..=192 => "Reserved",
+            193 => "Class 14 (degraded B)",
+            194..=215 => "Reserved",
+            216..=232 => "Alternate PTP profile",
+            233..=247 => "Reserved",
+            248 => "Default, free-running",
+            249..=254 => "Reserved",
+            255 => "Follower-only",
+        };
+        write!(f, "{} ({})", self.class, description)
+    }
+}
+
+#[test]
+fn test_clock_class_formatting() {
+    assert_eq!(
+        PtpClockClass::new(6).to_string(),
+        "6 (Primary reference (GPS, atomic clock, etc.))"
+    );
+
+    assert_eq!(
+        PtpClockClass::new(7).to_string(),
+        "7 (Primary reference (degraded))"
+    );
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub struct PtpClockAccuracy {
+    pub accuracy: u8,
+}
+
+impl PtpClockAccuracy {
+    pub fn new(accuracy: u8) -> Self {
+        Self { accuracy }
+    }
+}
+
+impl Display for PtpClockAccuracy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let description = match self.accuracy {
+            0..=0x1f => "Reserved",
+            0x20 => "25 ns",
+            0x21 => "100 ns",
+            0x22 => "250 ns",
+            0x23 => "1 µs",
+            0x24 => "2.5 µs",
+            0x25 => "10 µs",
+            0x26 => "25 µs",
+            0x27 => "100 µs",
+            0x28 => "250 µs",
+            0x29 => "1 ms",
+            0x2a => "2.5 ms",
+            0x2b => "10 ms",
+            0x2c => "25 ms",
+            0x2d => "100 ms",
+            0x2e => "250 ms",
+            0x2f => "1 s",
+            0x30 => "10 s",
+            0x31 => "> 10 s",
+            0x32..=0x7f => "Reserved",
+            0x80..=0xfd => "Alternate PTP profile",
+            0xfe => "Unknown",
+            0xff => "Reserved",
+        };
+        write!(f, "{} ({})", self.accuracy, description)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub struct PtpUtcOffset {
+    pub offset: i16,
+}
+
+impl PtpUtcOffset {
+    pub fn new(offset: i16) -> Self {
+        Self { offset }
+    }
+}
+
+impl Display for PtpUtcOffset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.offset >= 0 {
+            write!(f, "+{}s", self.offset)
+        } else {
+            write!(f, "{}s", self.offset)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub struct PtpLogInterval {
+    pub exponent: i8,
+}
+
+impl PtpLogInterval {
+    pub fn new(exponent: i8) -> Self {
+        Self { exponent }
+    }
+}
+
+impl Display for PtpLogInterval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.exponent == 0x7f {
+            return write!(f, "-");
+        }
+
+        let interval_seconds = 2.0_f64.powf(self.exponent as f64);
+        write!(f, "{:.2}s ({})", interval_seconds, self.exponent)
+    }
+}
+
+#[test]
+fn test_format_log_interval() {
+    // Test that -1 gives 0.5 seconds
+    assert_eq!(PtpLogInterval::new(-1).to_string(), "0.50s (-1)");
+
+    // Test other common values
+    assert_eq!(PtpLogInterval::new(0).to_string(), "1.00s (0)");
+    assert_eq!(PtpLogInterval::new(1).to_string(), "2.00s (1)");
+    assert_eq!(PtpLogInterval::new(-2).to_string(), "0.25s (-2)");
+    assert_eq!(PtpLogInterval::new(3).to_string(), "8.00s (3)");
+
+    // Test reserved value
+    assert_eq!(PtpLogInterval::new(0x7f).to_string(), "-");
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PtpCorrectionField {
+    pub value: i64,
+}
+
+impl PtpCorrectionField {
+    pub fn new(value: i64) -> Self {
+        Self { value }
+    }
+}
+
+impl Display for PtpCorrectionField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} ({:.2} ns)",
+            self.value,
+            (self.value as f64) / (1u64 << 16) as f64
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, Ord, PartialOrd)]
+pub struct PortIdentity {
+    pub clock_identity: ClockIdentity,
+    pub port_number: u16,
+}
+
+impl TryFrom<&[u8]> for PortIdentity {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self {
+            clock_identity: ClockIdentity::try_from(&value[0..8])?,
+            port_number: u16::from_be_bytes(value[8..10].try_into().unwrap()),
+        })
+    }
+}
+
+impl Display for PortIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{:04x}", self.clock_identity, self.port_number,)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PtpHeaderFlags {
+    v: [u8; 2],
+    _alternate_tt_flag: bool,
+    _two_step_flag: bool,
+    _unicast_flag: bool,
+    _ptp_profile_specific_1: bool,
+    _ptp_profile_specific_2: bool,
+    _ptp_security_flag: bool,
+    _leap61: bool,
+    _leap59: bool,
+    _current_utc_offset_valid: bool,
+    _ptp_timescale: bool,
+    _time_traceable: bool,
+    _frequency_traceable: bool,
+}
+
+impl PtpHeaderFlags {
+    pub fn short(&self) -> String {
+        format!("{:02x}{:02x}", self.v[0], self.v[1])
+    }
+}
+
+impl TryFrom<&[u8]> for PtpHeaderFlags {
+    type Error = anyhow::Error;
+
+    fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self {
+            v: v.try_into()?,
+            _alternate_tt_flag: v[0] & (1 << 0) != 0,
+            _two_step_flag: v[0] & (1 << 1) != 0,
+            _unicast_flag: v[0] & (1 << 2) != 0,
+            _ptp_profile_specific_1: v[0] & (1 << 5) != 0,
+            _ptp_profile_specific_2: v[0] & (1 << 6) != 0,
+            _ptp_security_flag: v[0] & (1 << 7) != 0,
+            _leap61: v[1] & (1 << 0) != 0,
+            _leap59: v[1] & (1 << 1) != 0,
+            _current_utc_offset_valid: v[1] & (1 << 2) != 0,
+            _ptp_timescale: v[1] & (1 << 3) != 0,
+            _time_traceable: v[1] & (1 << 4) != 0,
+            _frequency_traceable: v[1] & (1 << 5) != 0,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PtpHeader {
+    pub message_type: PtpMessageType,
+    pub version: PtpVersion,
+    pub message_length: u16,
+    pub domain_number: u8,
+    pub flags: PtpHeaderFlags,
+    pub correction_field: PtpCorrectionField,
+    pub source_port_identity: PortIdentity,
+    pub sequence_id: u16,
+    pub _control_field: u8,
+    pub log_message_interval: PtpLogInterval,
+}
+
+impl TryFrom<&[u8]> for PtpHeader {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if data.len() < 34 {
+            Err(anyhow::anyhow!("Packet too short for PTP header"))
+        } else {
+            Ok(PtpHeader {
+                message_type: PtpMessageType::try_from(data[0] & 0x0f)?,
+                version: PtpVersion::try_from(data[1] & 0x0f)?,
+                message_length: u16::from_be_bytes([data[2], data[3]]),
+                domain_number: data[4],
+                flags: PtpHeaderFlags::try_from(&data[5..7])?,
+                correction_field: PtpCorrectionField::new(i64::from_be_bytes([
+                    data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
+                ])),
+                source_port_identity: PortIdentity::try_from(&data[20..30])?,
+                sequence_id: u16::from_be_bytes([data[30], data[31]]),
+                _control_field: data[32],
+                log_message_interval: PtpLogInterval::new(data[33] as i8),
+            })
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AnnounceMessage {
+    pub header: PtpHeader,
+    pub origin_timestamp: PtpTimestamp,
+    pub current_utc_offset: PtpUtcOffset,
+    pub priority1: u8,
+    pub priority2: u8,
+    pub clock_class: PtpClockClass,
+    pub clock_accuracy: PtpClockAccuracy,
+    pub offset_scaled_log_variance: u16,
+    pub ptt_identity: ClockIdentity,
+    pub steps_removed: u16,
+    pub time_source: u8,
+}
+
+impl TryFrom<&[u8]> for AnnounceMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // 34 (header) + 30 (announce content) = 64 minimum
+        if data.len() < 64 {
+            Err(anyhow::anyhow!("Packet too short for Announce message"))
+        } else {
+            Ok(AnnounceMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                origin_timestamp: PtpTimestamp::try_from(&data[34..44])?,
+                current_utc_offset: PtpUtcOffset::new(i16::from_be_bytes([data[44], data[45]])),
+                priority1: data[47],
+                clock_class: PtpClockClass::new(data[48]),
+                clock_accuracy: PtpClockAccuracy::new(data[49]),
+                offset_scaled_log_variance: u16::from_be_bytes([data[50], data[51]]),
+                priority2: data[52],
+                ptt_identity: ClockIdentity::try_from(&data[53..61])?,
+                steps_removed: u16::from_be_bytes([data[61], data[62]]),
+                time_source: data[63],
+            })
+        }
+    }
+}
+
+impl Display for AnnounceMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Priority1: {}, ClockClass: {}, Accuracy: {}, Priority2: {}, StepsRemoved: {}",
+            self.priority1,
+            self.clock_class,
+            self.clock_accuracy,
+            self.priority2,
+            self.steps_removed
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SyncMessage {
+    pub header: PtpHeader,
+    pub origin_timestamp: PtpTimestamp,
+}
+
+impl TryFrom<&[u8]> for SyncMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // 34 (header) + 10 (sync content) = 44 minimum
+        if data.len() < 44 {
+            Err(anyhow::anyhow!("Packet too short for Sync message"))
+        } else {
+            Ok(SyncMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                origin_timestamp: PtpTimestamp::try_from(&data[34..44])?,
+            })
+        }
+    }
+}
+
+impl Display for SyncMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OriginTS: {}", self.origin_timestamp)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FollowUpMessage {
+    pub header: PtpHeader,
+    pub precise_origin_timestamp: PtpTimestamp,
+}
+
+impl TryFrom<&[u8]> for FollowUpMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // 34 (header) + 10 (precise origin timestamp) = 44 minimum
+        if data.len() < 44 {
+            Err(anyhow::anyhow!("Packet too short for Sync message"))
+        } else {
+            Ok(FollowUpMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                precise_origin_timestamp: PtpTimestamp::try_from(&data[34..44])?,
+            })
+        }
+    }
+}
+
+impl Display for FollowUpMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PreciseOriginTS: {}", self.precise_origin_timestamp)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PDelayReqMessage {
+    pub header: PtpHeader,
+    pub origin_timestamp: PtpTimestamp,
+}
+
+impl TryFrom<&[u8]> for PDelayReqMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // 34 (header) + 20 (delay request content) = 54 minimum
+        if data.len() < 54 {
+            Err(anyhow::anyhow!("Packet too short for PDelayReq message"))
+        } else {
+            Ok(PDelayReqMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                origin_timestamp: PtpTimestamp::try_from(&data[34..44])?,
+            })
+        }
+    }
+}
+
+impl Display for PDelayReqMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OriginTS: {}", self.origin_timestamp)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PDelayRespMessage {
+    pub header: PtpHeader,
+    pub request_receipt_timestamp: PtpTimestamp,
+    pub requesting_port_identity: PortIdentity,
+}
+
+impl TryFrom<&[u8]> for PDelayRespMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // 34 (header) + 20 (pdelay resp content) = 54 minimum
+        if data.len() < 54 {
+            Err(anyhow::anyhow!("Packet too short for PDelayResp message"))
+        } else {
+            Ok(PDelayRespMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                request_receipt_timestamp: PtpTimestamp::try_from(&data[34..44])?,
+                requesting_port_identity: PortIdentity::try_from(&data[44..54])?,
+            })
+        }
+    }
+}
+
+impl Display for PDelayRespMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "RequestReceiptTS: {}, RequestingPI: {}",
+            self.request_receipt_timestamp, self.requesting_port_identity
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PDelayRespFollowUpMessage {
+    pub header: PtpHeader,
+    pub response_origin_timestamp: PtpTimestamp,
+    pub requesting_port_identity: PortIdentity,
+}
+
+impl TryFrom<&[u8]> for PDelayRespFollowUpMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // 34 (header) + 20 (pdelay resp follow-up content) = 54 minimum
+        if data.len() < 54 {
+            Err(anyhow::anyhow!("Invalid PDelayRespFollowUpMessage length"))
+        } else {
+            Ok(PDelayRespFollowUpMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                response_origin_timestamp: PtpTimestamp::try_from(&data[34..44])?,
+                requesting_port_identity: PortIdentity::try_from(&data[44..54])?,
+            })
+        }
+    }
+}
+
+impl Display for PDelayRespFollowUpMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ResponseOriginTS: {}, RequestingPI: {}",
+            self.response_origin_timestamp, self.requesting_port_identity
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DelayReqMessage {
+    pub header: PtpHeader,
+    pub origin_timestamp: PtpTimestamp,
+}
+
+impl TryFrom<&[u8]> for DelayReqMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // 34 (header) + 10 (origin timestamp) = 44 minimum
+        if data.len() < 44 {
+            Err(anyhow::anyhow!("Invalid PDelayRespFollowUpMessage length"))
+        } else {
+            Ok(DelayReqMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                origin_timestamp: PtpTimestamp::try_from(&data[34..44])?,
+            })
+        }
+    }
+}
+
+impl Display for DelayReqMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OriginTS: {}", self.origin_timestamp)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DelayRespMessage {
+    pub header: PtpHeader,
+    pub receive_timestamp: PtpTimestamp,
+    pub requesting_port_identity: PortIdentity,
+}
+
+impl TryFrom<&[u8]> for DelayRespMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        // 34 (header) + 20 (delay resp content) = 54 minimum
+        if data.len() < 54 {
+            Err(anyhow::anyhow!("Invalid DelayRespMessage length"))
+        } else {
+            Ok(DelayRespMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                receive_timestamp: PtpTimestamp::try_from(&data[34..44])?,
+                requesting_port_identity: PortIdentity::try_from(&data[44..54])?,
+            })
+        }
+    }
+}
+
+impl Display for DelayRespMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ReceiveTS: {}, RequestingPI: {}",
+            self.receive_timestamp, self.requesting_port_identity
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SignalingMessage {
+    pub header: PtpHeader,
+    pub target_port_identity: PortIdentity,
+    // FIXME!
+}
+
+impl TryFrom<&[u8]> for SignalingMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if data.len() < 54 {
+            Err(anyhow::anyhow!("Invalid SignalingMessage length"))
+        } else {
+            Ok(SignalingMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                target_port_identity: PortIdentity::try_from(&data[34..44])?,
+            })
+        }
+    }
+}
+
+impl Display for SignalingMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TargetPI: {}", self.target_port_identity)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ManagementMessage {
+    pub header: PtpHeader,
+    pub target_port_identity: PortIdentity,
+    pub starting_boundary_hops: u8,
+    pub boundary_hops: u8,
+    pub action_field: u8,
+    // FIXME!
+}
+
+impl TryFrom<&[u8]> for ManagementMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if data.len() < 54 {
+            Err(anyhow::anyhow!("Invalid ManagementMessage length"))
+        } else {
+            Ok(ManagementMessage {
+                header: PtpHeader::try_from(&data[..34])?,
+                target_port_identity: PortIdentity::try_from(&data[34..44])?,
+                starting_boundary_hops: data[44],
+                boundary_hops: data[45],
+                action_field: data[46] & 0x0f,
+            })
+        }
+    }
+}
+
+impl Display for ManagementMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TargetPI: {}, StartingBoundaryHops: {}, BoundaryHops: {}, ActionField: {}",
+            self.target_port_identity,
+            self.starting_boundary_hops,
+            self.boundary_hops,
+            self.action_field
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PtpMessage {
+    Announce(AnnounceMessage),
+    DelayReq(DelayReqMessage),
+    DelayResp(DelayRespMessage),
+    Sync(SyncMessage),
+    PDelayReq(PDelayReqMessage),
+    PDelayResp(PDelayRespMessage),
+    FollowUp(FollowUpMessage),
+    PDelayRespFollowup(PDelayRespFollowUpMessage),
+    Signaling(SignalingMessage),
+    Management(ManagementMessage),
+}
+
+impl PtpMessage {
+    pub fn header(&self) -> &PtpHeader {
+        match self {
+            PtpMessage::Announce(msg) => &msg.header,
+            PtpMessage::DelayReq(msg) => &msg.header,
+            PtpMessage::DelayResp(msg) => &msg.header,
+            PtpMessage::Sync(msg) => &msg.header,
+            PtpMessage::PDelayReq(msg) => &msg.header,
+            PtpMessage::PDelayResp(msg) => &msg.header,
+            PtpMessage::FollowUp(msg) => &msg.header,
+            PtpMessage::PDelayRespFollowup(msg) => &msg.header,
+            PtpMessage::Signaling(msg) => &msg.header,
+            PtpMessage::Management(msg) => &msg.header,
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for PtpMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        let header = PtpHeader::try_from(&data[..34])?;
+
+        match header.message_type {
+            PtpMessageType::Announce => Ok(PtpMessage::Announce(AnnounceMessage::try_from(data)?)),
+            PtpMessageType::DelayReq => Ok(PtpMessage::DelayReq(DelayReqMessage::try_from(data)?)),
+            PtpMessageType::DelayResp => {
+                Ok(PtpMessage::DelayResp(DelayRespMessage::try_from(data)?))
+            }
+            PtpMessageType::Sync => Ok(PtpMessage::Sync(SyncMessage::try_from(data)?)),
+            PtpMessageType::PDelayReq => {
+                Ok(PtpMessage::PDelayReq(PDelayReqMessage::try_from(data)?))
+            }
+            PtpMessageType::PDelayResp => {
+                Ok(PtpMessage::PDelayResp(PDelayRespMessage::try_from(data)?))
+            }
+            PtpMessageType::FollowUp => Ok(PtpMessage::FollowUp(FollowUpMessage::try_from(data)?)),
+            PtpMessageType::PDelayRespFollowUp => Ok(PtpMessage::PDelayRespFollowup(
+                PDelayRespFollowUpMessage::try_from(data)?,
+            )),
+            PtpMessageType::Signaling => {
+                Ok(PtpMessage::Signaling(SignalingMessage::try_from(data)?))
+            }
+            PtpMessageType::Management => {
+                Ok(PtpMessage::Management(ManagementMessage::try_from(data)?))
+            }
+        }
+    }
+}
+
+impl Display for PtpMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PtpMessage::Announce(msg) => msg.fmt(f),
+            PtpMessage::DelayReq(msg) => msg.fmt(f),
+            PtpMessage::DelayResp(msg) => msg.fmt(f),
+            PtpMessage::Sync(msg) => msg.fmt(f),
+            PtpMessage::PDelayReq(msg) => msg.fmt(f),
+            PtpMessage::PDelayResp(msg) => msg.fmt(f),
+            PtpMessage::FollowUp(msg) => msg.fmt(f),
+            PtpMessage::PDelayRespFollowup(msg) => msg.fmt(f),
+            PtpMessage::Signaling(msg) => msg.fmt(f),
+            PtpMessage::Management(msg) => msg.fmt(f),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessedPacket {
+    pub ptp_message: PtpMessage,
+    pub timestamp: std::time::Instant,
+    pub source_ip: std::net::IpAddr,
+    pub vlan_id: Option<u16>,
+    pub source_port: u16,
+    pub interface: String,
+    pub _raw_packet_data: Vec<u8>,
+}

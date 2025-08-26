@@ -1,5 +1,7 @@
 use ratatui::style::Color;
 
+use crate::{ptp::PtpHostState, types::PtpMessageType};
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThemeName {
     Default,
@@ -36,10 +38,6 @@ pub struct Theme {
     pub state_transmitter: Color,
     pub state_receiver: Color,
     pub state_listening: Color,
-    pub state_passive: Color,
-    pub state_faulty: Color,
-    pub state_disabled: Color,
-    pub state_unknown: Color,
 
     // UI element colors
     pub header_fg: Color,
@@ -88,10 +86,6 @@ impl Theme {
             state_transmitter: Color::Rgb(46, 204, 113), // Emerald green
             state_receiver: Color::Rgb(52, 152, 219),    // Dodger blue
             state_listening: Color::Rgb(241, 196, 15),   // Sun flower yellow
-            state_passive: Color::Rgb(155, 89, 182),     // Amethyst purple
-            state_faulty: Color::Rgb(231, 76, 60),       // Alizarin red
-            state_disabled: Color::Rgb(149, 165, 166),   // Concrete gray
-            state_unknown: Color::Rgb(236, 240, 241),    // Clouds white
 
             // UI element colors
             header_fg: Color::Rgb(236, 240, 241), // Clouds white
@@ -132,10 +126,6 @@ impl Theme {
             state_transmitter: Color::Rgb(166, 226, 46), // Monokai green
             state_receiver: Color::Rgb(102, 217, 239),   // Monokai cyan
             state_listening: Color::Rgb(253, 151, 31),   // Monokai orange
-            state_passive: Color::Rgb(174, 129, 255),    // Monokai purple
-            state_faulty: Color::Rgb(249, 38, 114),      // Monokai pink/red
-            state_disabled: Color::Rgb(117, 113, 94),    // Monokai gray
-            state_unknown: Color::Rgb(248, 248, 242),    // Monokai white
 
             // UI element colors - Monokai inspired
             header_fg: Color::Rgb(248, 248, 242), // Monokai white
@@ -176,10 +166,6 @@ impl Theme {
             state_transmitter: Color::Rgb(0, 255, 65), // Bright matrix green
             state_receiver: Color::Rgb(0, 200, 50),    // Medium matrix green
             state_listening: Color::Rgb(0, 150, 35),   // Darker matrix green
-            state_passive: Color::Rgb(0, 100, 25),     // Very dark matrix green
-            state_faulty: Color::Rgb(255, 0, 0),       // Matrix red for errors
-            state_disabled: Color::Rgb(50, 50, 50),    // Dark gray
-            state_unknown: Color::Rgb(0, 180, 40),     // Matrix green variant
 
             // UI element colors - Matrix inspired
             header_fg: Color::Rgb(0, 255, 65), // Bright matrix green
@@ -214,21 +200,15 @@ impl Theme {
         }
     }
 
-    pub fn get_state_color(&self, state: &crate::ptp::PtpState) -> Color {
-        use crate::ptp::PtpState;
+    pub fn get_state_color(&self, state: &crate::ptp::PtpHostState) -> Color {
         match state {
-            PtpState::Transmitter => self.state_transmitter,
-            PtpState::Receiver => self.state_receiver,
-            PtpState::Listening => self.state_listening,
-            PtpState::Passive => self.state_passive,
-            PtpState::Faulty => self.state_faulty,
-            PtpState::Disabled => self.state_disabled,
-            _ => self.state_unknown,
+            PtpHostState::TimeTransmitter(_) => self.state_transmitter,
+            PtpHostState::TimeReceiver(_) => self.state_receiver,
+            PtpHostState::Listening => self.state_listening,
         }
     }
 
-    pub fn get_message_type_color(&self, message_type: &crate::ptp::PtpMessageType) -> Color {
-        use crate::ptp::PtpMessageType;
+    pub fn get_message_type_color(&self, message_type: &PtpMessageType) -> Color {
         match message_type {
             PtpMessageType::Sync => self.message_type_sync,
             PtpMessageType::FollowUp => self.message_type_follow_up,
