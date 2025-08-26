@@ -8,6 +8,12 @@ use ratatui::{
 
 use crate::{
     app::{App, SortColumn},
+    ptp::format_announce_timestamp,
+    ptp::format_clock_accuracy,
+    ptp::format_clock_class,
+    ptp::format_followup_timestamp,
+    ptp::format_sync_timestamp,
+    ptp::format_utc_offset,
     ptp::get_vendor_by_clock_identity,
     version,
 };
@@ -645,7 +651,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             if host.clock_class.is_some() {
                 details_text.push(create_aligned_field(
                     "Clock Class: ",
-                    host.format_clock_class(),
+                    format_clock_class(host.clock_class),
                     LABEL_WIDTH,
                     theme,
                 ));
@@ -654,7 +660,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             if host.clock_accuracy.is_some() {
                 details_text.push(create_aligned_field(
                     "Accuracy: ",
-                    host.format_clock_accuracy(),
+                    format_clock_accuracy(host.clock_accuracy),
                     LABEL_WIDTH,
                     theme,
                 ));
@@ -686,7 +692,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             if host.current_utc_offset.is_some() {
                 details_text.push(create_aligned_field(
                     "UTC Offset: ",
-                    host.format_utc_offset(),
+                    format_utc_offset(host.current_utc_offset),
                     LABEL_WIDTH,
                     theme,
                 ));
@@ -704,7 +710,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             if host.announce_origin_timestamp.is_some() {
                 details_text.push(create_aligned_field(
                     "Announce Timestamp: ",
-                    host.format_announce_timestamp(),
+                    format_announce_timestamp(&host.announce_origin_timestamp),
                     LABEL_WIDTH,
                     theme,
                 ));
@@ -713,7 +719,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             if host.sync_origin_timestamp.is_some() {
                 details_text.push(create_aligned_field(
                     "Sync Timestamp: ",
-                    host.format_sync_timestamp(),
+                    format_sync_timestamp(&host.sync_origin_timestamp),
                     LABEL_WIDTH,
                     theme,
                 ));
@@ -722,7 +728,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             if host.followup_origin_timestamp.is_some() {
                 details_text.push(create_aligned_field(
                     "Follow-Up Timestamp: ",
-                    host.format_followup_timestamp(),
+                    format_followup_timestamp(&host.followup_origin_timestamp),
                     LABEL_WIDTH,
                     theme,
                 ));

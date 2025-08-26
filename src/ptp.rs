@@ -516,156 +516,6 @@ impl PtpHost {
         self.timestamp_source = Some(TimestampSource::Announce);
     }
 
-    /// Format a PTP timestamp as YYYY:MM:DD:HH:MM:SS:nanos
-    fn format_ptp_timestamp(timestamp: &[u8; 10]) -> String {
-        use chrono::{DateTime, Datelike, Timelike};
-
-        // PTP timestamp is 10 bytes: 6 bytes seconds + 4 bytes nanoseconds
-        let seconds = u64::from_be_bytes([
-            0,
-            0,
-            timestamp[0],
-            timestamp[1],
-            timestamp[2],
-            timestamp[3],
-            timestamp[4],
-            timestamp[5],
-        ]);
-        let nanoseconds =
-            u32::from_be_bytes([timestamp[6], timestamp[7], timestamp[8], timestamp[9]]);
-
-        // PTP uses TAI (International Atomic Time) - convert to UTC for display
-        // Current leap seconds offset (as of 2024): 37 seconds
-        const LEAP_SECONDS_OFFSET: u64 = 37;
-
-        // Convert TAI to UTC and format as datetime if within reasonable bounds
-        let utc_seconds = seconds.saturating_sub(LEAP_SECONDS_OFFSET);
-
-        if let Some(dt) = DateTime::from_timestamp(utc_seconds as i64, nanoseconds) {
-            format!(
-                "{}-{:02}-{:02} {:02}:{:02}:{:02}.{:09}",
-                dt.year(),
-                dt.month(),
-                dt.day(),
-                dt.hour(),
-                dt.minute(),
-                dt.second(),
-                nanoseconds
-            )
-        } else {
-            // Fallback for invalid timestamps
-            format!("UTC: {}.{:09}", utc_seconds, nanoseconds)
-        }
-    }
-
-    /// Generic helper for formatting optional timestamps
-    fn format_optional_timestamp(timestamp: &Option<[u8; 10]>) -> String {
-        match timestamp {
-            Some(ts) => Self::format_ptp_timestamp(ts),
-            None => "N/A".to_string(),
-        }
-    }
-
-    /// Format the announce origin timestamp
-    pub fn format_announce_timestamp(&self) -> String {
-        Self::format_optional_timestamp(&self.announce_origin_timestamp)
-    }
-
-    /// Format the sync origin timestamp
-    pub fn format_sync_timestamp(&self) -> String {
-        Self::format_optional_timestamp(&self.sync_origin_timestamp)
-    }
-
-    /// Format the follow-up origin timestamp
-    pub fn format_followup_timestamp(&self) -> String {
-        Self::format_optional_timestamp(&self.followup_origin_timestamp)
-    }
-
-    /// Resolve clock class to human-readable description
-    pub fn format_clock_class(&self) -> String {
-        match self.clock_class {
-            None => "N/A".to_string(),
-            Some(class) => {
-                let description = match class {
-                    0..=5 => "Reserved",
-                    6 => "Primary reference (GPS, atomic clock, etc.)",
-                    7 => "Primary reference (degraded)",
-                    8..=12 => "Reserved",
-                    13 => "Application specific",
-                    14 => "Application specific (degraded)",
-                    15..=51 => "Reserved",
-                    52 => "Class 7 (degraded A)",
-                    53..=57 => "Reserved",
-                    58 => "Class 14 (degraded A)",
-                    59..=67 => "Reserved",
-                    68..=122 => "Alternate PTP profile",
-                    123..=132 => "Reserved",
-                    133..=170 => "Alternate PTP profile",
-                    171..=186 => "Reserved",
-                    187 => "Class 7 (degraded B)",
-                    188..=192 => "Reserved",
-                    193 => "Class 14 (degraded B)",
-                    194..=215 => "Reserved",
-                    216..=232 => "Alternate PTP profile",
-                    233..=247 => "Reserved",
-                    248 => "Default, free-running",
-                    249..=254 => "Reserved",
-                    255 => "Follower-only",
-                };
-                format!("{} ({})", class, description)
-            }
-        }
-    }
-
-    /// Resolve clock accuracy
-    pub fn format_clock_accuracy(&self) -> String {
-        match self.clock_accuracy {
-            None => "N/A".to_string(),
-            Some(accuracy) => {
-                let description = match accuracy {
-                    0..=0x1f => "Reserved",
-                    0x20 => "25 ns",
-                    0x21 => "100 ns",
-                    0x22 => "250 ns",
-                    0x23 => "1 µs",
-                    0x24 => "2.5 µs",
-                    0x25 => "10 µs",
-                    0x26 => "25 µs",
-                    0x27 => "100 µs",
-                    0x28 => "250 µs",
-                    0x29 => "1 ms",
-                    0x2a => "2.5 ms",
-                    0x2b => "10 ms",
-                    0x2c => "25 ms",
-                    0x2d => "100 ms",
-                    0x2e => "250 ms",
-                    0x2f => "1 s",
-                    0x30 => "10 s",
-                    0x31 => "> 10 s",
-                    0x32..=0x7f => "Reserved",
-                    0x80..=0xfd => "Alternate PTP profile",
-                    0xfe => "Unknown",
-                    0xff => "Reserved",
-                };
-                format!("{} ({})", accuracy, description)
-            }
-        }
-    }
-
-    /// Format the current UTC offset as a human-readable string
-    pub fn format_utc_offset(&self) -> String {
-        match self.current_utc_offset {
-            Some(offset) => {
-                if offset >= 0 {
-                    format!("+{}s", offset)
-                } else {
-                    format!("{}s", offset)
-                }
-            }
-            None => "N/A".to_string(),
-        }
-    }
-
     pub fn add_packet(&mut self, packet: ProcessedPacket) {
         self.packet_history.push(packet);
     }
@@ -968,6 +818,155 @@ fn parse_delay_resp_message(data: &[u8]) -> Result<DelayRespMessage> {
     })
 }
 
+/// Resolve clock class to human-readable description
+pub fn format_clock_class(cc: Option<u8>) -> String {
+    match cc {
+        None => "N/A".to_string(),
+        Some(class) => {
+            let description = match class {
+                0..=5 => "Reserved",
+                6 => "Primary reference (GPS, atomic clock, etc.)",
+                7 => "Primary reference (degraded)",
+                8..=12 => "Reserved",
+                13 => "Application specific",
+                14 => "Application specific (degraded)",
+                15..=51 => "Reserved",
+                52 => "Class 7 (degraded A)",
+                53..=57 => "Reserved",
+                58 => "Class 14 (degraded A)",
+                59..=67 => "Reserved",
+                68..=122 => "Alternate PTP profile",
+                123..=132 => "Reserved",
+                133..=170 => "Alternate PTP profile",
+                171..=186 => "Reserved",
+                187 => "Class 7 (degraded B)",
+                188..=192 => "Reserved",
+                193 => "Class 14 (degraded B)",
+                194..=215 => "Reserved",
+                216..=232 => "Alternate PTP profile",
+                233..=247 => "Reserved",
+                248 => "Default, free-running",
+                249..=254 => "Reserved",
+                255 => "Follower-only",
+            };
+            format!("{} ({})", class, description)
+        }
+    }
+}
+
+/// Resolve clock accuracy
+pub fn format_clock_accuracy(ca: Option<u8>) -> String {
+    match ca {
+        None => "N/A".to_string(),
+        Some(accuracy) => {
+            let description = match accuracy {
+                0..=0x1f => "Reserved",
+                0x20 => "25 ns",
+                0x21 => "100 ns",
+                0x22 => "250 ns",
+                0x23 => "1 µs",
+                0x24 => "2.5 µs",
+                0x25 => "10 µs",
+                0x26 => "25 µs",
+                0x27 => "100 µs",
+                0x28 => "250 µs",
+                0x29 => "1 ms",
+                0x2a => "2.5 ms",
+                0x2b => "10 ms",
+                0x2c => "25 ms",
+                0x2d => "100 ms",
+                0x2e => "250 ms",
+                0x2f => "1 s",
+                0x30 => "10 s",
+                0x31 => "> 10 s",
+                0x32..=0x7f => "Reserved",
+                0x80..=0xfd => "Alternate PTP profile",
+                0xfe => "Unknown",
+                0xff => "Reserved",
+            };
+            format!("{} ({})", accuracy, description)
+        }
+    }
+}
+
+/// Format the current UTC offset as a human-readable string
+pub fn format_utc_offset(off: Option<i16>) -> String {
+    match off {
+        Some(offset) => {
+            if offset >= 0 {
+                format!("+{}s", offset)
+            } else {
+                format!("{}s", offset)
+            }
+        }
+        None => "N/A".to_string(),
+    }
+}
+
+/// Format a PTP timestamp as YYYY:MM:DD:HH:MM:SS:nanos
+fn format_ptp_timestamp(timestamp: &[u8; 10]) -> String {
+    use chrono::{DateTime, Datelike, Timelike};
+
+    // PTP timestamp is 10 bytes: 6 bytes seconds + 4 bytes nanoseconds
+    let seconds = u64::from_be_bytes([
+        0,
+        0,
+        timestamp[0],
+        timestamp[1],
+        timestamp[2],
+        timestamp[3],
+        timestamp[4],
+        timestamp[5],
+    ]);
+    let nanoseconds = u32::from_be_bytes([timestamp[6], timestamp[7], timestamp[8], timestamp[9]]);
+
+    // PTP uses TAI (International Atomic Time) - convert to UTC for display
+    // Current leap seconds offset (as of 2024): 37 seconds
+    const LEAP_SECONDS_OFFSET: u64 = 37;
+
+    // Convert TAI to UTC and format as datetime if within reasonable bounds
+    let utc_seconds = seconds.saturating_sub(LEAP_SECONDS_OFFSET);
+
+    if let Some(dt) = DateTime::from_timestamp(utc_seconds as i64, nanoseconds) {
+        format!(
+            "{}-{:02}-{:02} {:02}:{:02}:{:02}.{:09}",
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minute(),
+            dt.second(),
+            nanoseconds
+        )
+    } else {
+        // Fallback for invalid timestamps
+        format!("UTC: {}.{:09}", utc_seconds, nanoseconds)
+    }
+}
+
+/// Generic helper for formatting optional timestamps
+fn format_optional_timestamp(timestamp: &Option<[u8; 10]>) -> String {
+    match timestamp {
+        Some(ts) => format_ptp_timestamp(ts),
+        None => "N/A".to_string(),
+    }
+}
+
+/// Format the announce origin timestamp
+pub fn format_announce_timestamp(ts: &Option<[u8; 10]>) -> String {
+    format_optional_timestamp(ts)
+}
+
+/// Format the sync origin timestamp
+pub fn format_sync_timestamp(ts: &Option<[u8; 10]>) -> String {
+    format_optional_timestamp(ts)
+}
+
+/// Format the follow-up origin timestamp
+pub fn format_followup_timestamp(ts: &Option<[u8; 10]>) -> String {
+    format_optional_timestamp(ts)
+}
+
 /// Extract vendor name from clock identity string using OUI lookup
 pub fn get_vendor_by_clock_identity(clock_identity: &str) -> Option<&'static str> {
     // Extract first 6 bytes from clock identity
@@ -1051,36 +1050,21 @@ mod tests {
         timestamp[8] = ((nanos >> 8) & 0xff) as u8;
         timestamp[9] = (nanos & 0xff) as u8;
 
-        let formatted = PtpHost::format_ptp_timestamp(&timestamp);
+        let formatted = format_ptp_timestamp(&timestamp);
         assert_eq!(formatted, "2024-01-01 00:00:00.123456789");
     }
 
     #[test]
     fn test_clock_class_formatting() {
-        let mut host = PtpHost::new(
-            "00:11:22:33:44:55:66:77".to_string(),
-            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)),
-            "eth0".to_string(),
-        );
-
         // Test common clock class values
-        host.clock_class = Some(6);
+        let cc = Some(6);
         assert_eq!(
-            host.format_clock_class(),
+            format_clock_class(cc),
             "6 (Primary reference (GPS, atomic clock, etc.))"
         );
 
-        host.clock_class = Some(7);
-        assert_eq!(
-            host.format_clock_class(),
-            "7 (Primary reference (degraded))"
-        );
-
-        host.clock_class = Some(248);
-        assert_eq!(host.format_clock_class(), "248 (Default, free-running)");
-
-        host.clock_class = Some(255);
-        assert_eq!(host.format_clock_class(), "255 (Follower-only)");
+        let cc = Some(7);
+        assert_eq!(format_clock_class(cc), "7 (Primary reference (degraded))");
     }
 
     #[test]
@@ -1912,7 +1896,10 @@ impl PtpTracker {
                         host.sync_origin_timestamp = Some(sync_msg.origin_timestamp);
                         host.last_origin_timestamp = Some(sync_msg.origin_timestamp);
                         host.timestamp_source = Some(TimestampSource::Sync);
-                        packet.details = Some(format!("Origin: {}", host.format_sync_timestamp()));
+                        packet.details = Some(format!(
+                            "Origin: {}",
+                            format_sync_timestamp(&Some(sync_msg.origin_timestamp))
+                        ));
 
                         // Record this as a recent sync sender for this domain
                         let domain_senders = self
@@ -1953,7 +1940,7 @@ impl PtpTracker {
                         host.delay_req_count += 1;
                         packet.details = Some(format!(
                             "Origin: {}",
-                            PtpHost::format_ptp_timestamp(&delay_req_msg.origin_timestamp)
+                            format_ptp_timestamp(&delay_req_msg.origin_timestamp)
                         ));
 
                         // Delay requests are sent by receivers
@@ -2006,7 +1993,7 @@ impl PtpTracker {
                         host.delay_resp_count += 1;
                         packet.details = Some(format!(
                             "Receive: {}, Requesting: {}",
-                            PtpHost::format_ptp_timestamp(&delay_resp_msg.receive_timestamp),
+                            format_ptp_timestamp(&delay_resp_msg.receive_timestamp),
                             format!(
                                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
                                 delay_resp_msg.requesting_port_identity[0],
@@ -2045,7 +2032,7 @@ impl PtpTracker {
                         // Could extract timing information if needed for analysis
                         packet.details = Some(format!(
                             "Origin: {}",
-                            PtpHost::format_ptp_timestamp(&pdelay_req_msg.origin_timestamp)
+                            format_ptp_timestamp(&pdelay_req_msg.origin_timestamp)
                         ));
 
                         if host.announce_count == 0 {
@@ -2070,9 +2057,7 @@ impl PtpTracker {
                         // Like PDelayReq, they don't indicate transmitter-receiver relationship
                         packet.details = Some(format!(
                             "Request Receipt: {}, Requesting: {}",
-                            PtpHost::format_ptp_timestamp(
-                                &pdelay_resp_msg.request_receipt_timestamp
-                            ),
+                            format_ptp_timestamp(&pdelay_resp_msg.request_receipt_timestamp),
                             format!(
                                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
                                 pdelay_resp_msg.requesting_port_identity[0],
@@ -2111,9 +2096,7 @@ impl PtpTracker {
                         // Could extract precise timing information if needed
                         packet.details = Some(format!(
                             "Response Origin: {}, Requesting: {}",
-                            PtpHost::format_ptp_timestamp(
-                                &pdelay_followup_msg.response_origin_timestamp
-                            ),
+                            format_ptp_timestamp(&pdelay_followup_msg.response_origin_timestamp),
                             format!(
                                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
                                 pdelay_followup_msg.requesting_port_identity[0],
@@ -2152,7 +2135,9 @@ impl PtpTracker {
                         host.timestamp_source = Some(TimestampSource::FollowUp);
                         packet.details = Some(format!(
                             "Precise Origin: {}",
-                            host.format_followup_timestamp()
+                            format_followup_timestamp(&Some(
+                                follow_up_msg.precise_origin_timestamp
+                            ))
                         ));
                         // Record this as a recent sync sender for this domain (follow-up correlates with sync)
                         let domain_senders = self
