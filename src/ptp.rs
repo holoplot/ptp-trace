@@ -687,6 +687,287 @@ impl PtpHost {
     }
 }
 
+fn parse_ptp_header(data: &[u8]) -> Result<PtpHeader> {
+    if data.len() < 34 {
+        return Err(anyhow::anyhow!("Packet too short for PTP header"));
+    }
+
+    let message_type = PtpMessageType::try_from(data[0] & 0x0f)
+        .map_err(|_| anyhow::anyhow!("Unknown PTP message type"))?;
+
+    let version = data[1] & 0x0f;
+    let message_length = u16::from_be_bytes([data[2], data[3]]);
+    let domain_number = data[4];
+    let flags = [data[6], data[7]];
+
+    // Parse correction field (64-bit signed integer)
+    let correction_field = i64::from_be_bytes([
+        data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
+    ]);
+
+    // Source port identity (10 bytes: 8 for clock identity + 2 for port number)
+    let mut source_port_identity = [0u8; 10];
+    source_port_identity.copy_from_slice(&data[20..30]);
+
+    let sequence_id = u16::from_be_bytes([data[30], data[31]]);
+    let _control_field = data[32];
+    let log_message_interval = data[33] as i8;
+
+    Ok(PtpHeader {
+        message_type,
+        version,
+        message_length,
+        domain_number,
+        flags,
+        correction_field,
+        source_port_identity,
+        sequence_id,
+        _control_field,
+        log_message_interval,
+    })
+}
+
+fn parse_announce_message(data: &[u8]) -> Result<AnnounceMessage> {
+    if data.len() < 64 {
+        // 34 (header) + 30 (announce content) = 64 minimum
+        return Err(anyhow::anyhow!("Packet too short for Announce message"));
+    }
+
+    let header = parse_ptp_header(data)?;
+
+    // Parse announce-specific fields starting at byte 34
+    let announce_data = &data[34..];
+
+    if announce_data.len() < 30 {
+        return Err(anyhow::anyhow!("Announce data too short"));
+    }
+
+    let mut origin_timestamp = [0u8; 10];
+    origin_timestamp.copy_from_slice(&announce_data[0..10]);
+
+    let current_utc_offset = i16::from_be_bytes([announce_data[10], announce_data[11]]);
+
+    // Skip reserved byte at index 12
+    let primary_transmitter_priority_1 = announce_data[13];
+
+    let mut primary_transmitter_clock_quality = [0u8; 4];
+    primary_transmitter_clock_quality.copy_from_slice(&announce_data[14..18]);
+
+    let primary_transmitter_priority_2 = announce_data[18];
+
+    let mut primary_transmitter_identity = [0u8; 8];
+    primary_transmitter_identity.copy_from_slice(&announce_data[19..27]);
+
+    let steps_removed = u16::from_be_bytes([announce_data[27], announce_data[28]]);
+    let time_source = announce_data[29];
+
+    Ok(AnnounceMessage {
+        header,
+        origin_timestamp,
+        current_utc_offset,
+        primary_transmitter_priority_1,
+        primary_transmitter_clock_quality,
+        primary_transmitter_priority_2,
+        primary_transmitter_identity,
+        steps_removed,
+        time_source,
+    })
+}
+
+fn parse_sync_message(data: &[u8]) -> Result<SyncMessage> {
+    if data.len() < 44 {
+        // 34 (header) + 10 (origin timestamp) = 44 minimum
+        return Err(anyhow::anyhow!("Packet too short for Sync message"));
+    }
+
+    let header = parse_ptp_header(data)?;
+
+    // Parse sync-specific fields starting at byte 34
+    let sync_data = &data[34..];
+
+    if sync_data.len() < 10 {
+        return Err(anyhow::anyhow!("Sync data too short"));
+    }
+
+    let mut origin_timestamp = [0u8; 10];
+    origin_timestamp.copy_from_slice(&sync_data[0..10]);
+
+    Ok(SyncMessage {
+        _header: header,
+        origin_timestamp,
+    })
+}
+
+fn parse_follow_up_message(data: &[u8]) -> Result<FollowUpMessage> {
+    if data.len() < 44 {
+        // 34 (header) + 10 (precise origin timestamp) = 44 minimum
+        return Err(anyhow::anyhow!("Packet too short for Follow-Up message"));
+    }
+
+    let header = parse_ptp_header(data)?;
+
+    // Parse follow-up specific fields starting at byte 34
+    let followup_data = &data[34..];
+
+    if followup_data.len() < 10 {
+        return Err(anyhow::anyhow!("Follow-Up data too short"));
+    }
+
+    let mut precise_origin_timestamp = [0u8; 10];
+    precise_origin_timestamp.copy_from_slice(&followup_data[0..10]);
+
+    Ok(FollowUpMessage {
+        _header: header,
+        precise_origin_timestamp,
+    })
+}
+
+fn parse_pdelay_req_message(data: &[u8]) -> Result<PDelayReqMessage> {
+    if data.len() < 54 {
+        // 34 (header) + 20 (pdelay req content) = 54 minimum
+        return Err(anyhow::anyhow!(
+            "Packet too short for PDelay Request message"
+        ));
+    }
+
+    let header = parse_ptp_header(data)?;
+
+    // Parse PDelay Request specific fields starting at byte 34
+    let pdelay_data = &data[34..];
+
+    if pdelay_data.len() < 20 {
+        return Err(anyhow::anyhow!("PDelay Request data too short"));
+    }
+
+    let mut origin_timestamp = [0u8; 10];
+    origin_timestamp.copy_from_slice(&pdelay_data[0..10]);
+
+    let mut _reserved = [0u8; 10];
+    _reserved.copy_from_slice(&pdelay_data[10..20]);
+
+    Ok(PDelayReqMessage {
+        _header: header,
+        origin_timestamp,
+        _reserved,
+    })
+}
+
+fn parse_pdelay_resp_message(data: &[u8]) -> Result<PDelayRespMessage> {
+    if data.len() < 54 {
+        // 34 (header) + 20 (pdelay resp content) = 54 minimum
+        return Err(anyhow::anyhow!(
+            "Packet too short for PDelay Response message"
+        ));
+    }
+
+    let header = parse_ptp_header(data)?;
+
+    // Parse PDelay Response specific fields starting at byte 34
+    let pdelay_data = &data[34..];
+
+    if pdelay_data.len() < 20 {
+        return Err(anyhow::anyhow!("PDelay Response data too short"));
+    }
+
+    let mut request_receipt_timestamp = [0u8; 10];
+    request_receipt_timestamp.copy_from_slice(&pdelay_data[0..10]);
+
+    let mut requesting_port_identity = [0u8; 10];
+    requesting_port_identity.copy_from_slice(&pdelay_data[10..20]);
+
+    Ok(PDelayRespMessage {
+        _header: header,
+        request_receipt_timestamp,
+        requesting_port_identity,
+    })
+}
+
+fn parse_pdelay_resp_followup_message(data: &[u8]) -> Result<PDelayRespFollowUpMessage> {
+    if data.len() < 54 {
+        // 34 (header) + 20 (pdelay resp follow-up content) = 54 minimum
+        return Err(anyhow::anyhow!(
+            "Packet too short for PDelay Response Follow-Up message"
+        ));
+    }
+
+    let header = parse_ptp_header(data)?;
+
+    // Parse PDelay Response Follow-Up specific fields starting at byte 34
+    let pdelay_data = &data[34..];
+
+    if pdelay_data.len() < 20 {
+        return Err(anyhow::anyhow!("PDelay Response Follow-Up data too short"));
+    }
+
+    let mut response_origin_timestamp = [0u8; 10];
+    response_origin_timestamp.copy_from_slice(&pdelay_data[0..10]);
+
+    let mut requesting_port_identity = [0u8; 10];
+    requesting_port_identity.copy_from_slice(&pdelay_data[10..20]);
+
+    Ok(PDelayRespFollowUpMessage {
+        _header: header,
+        response_origin_timestamp,
+        requesting_port_identity,
+    })
+}
+
+fn parse_delay_req_message(data: &[u8]) -> Result<DelayReqMessage> {
+    if data.len() < 44 {
+        // 34 (header) + 10 (origin timestamp) = 44 minimum
+        return Err(anyhow::anyhow!(
+            "Packet too short for Delay Request message"
+        ));
+    }
+
+    let header = parse_ptp_header(data)?;
+
+    // Parse Delay Request specific fields starting at byte 34
+    let delay_data = &data[34..];
+
+    if delay_data.len() < 10 {
+        return Err(anyhow::anyhow!("Delay Request data too short"));
+    }
+
+    let mut origin_timestamp = [0u8; 10];
+    origin_timestamp.copy_from_slice(&delay_data[0..10]);
+
+    Ok(DelayReqMessage {
+        _header: header,
+        origin_timestamp,
+    })
+}
+
+fn parse_delay_resp_message(data: &[u8]) -> Result<DelayRespMessage> {
+    if data.len() < 54 {
+        // 34 (header) + 20 (delay resp content) = 54 minimum
+        return Err(anyhow::anyhow!(
+            "Packet too short for Delay Response message"
+        ));
+    }
+
+    let header = parse_ptp_header(data)?;
+
+    // Parse Delay Response specific fields starting at byte 34
+    let delay_data = &data[34..];
+
+    if delay_data.len() < 20 {
+        return Err(anyhow::anyhow!("Delay Response data too short"));
+    }
+
+    let mut receive_timestamp = [0u8; 10];
+    receive_timestamp.copy_from_slice(&delay_data[0..10]);
+
+    let mut requesting_port_identity = [0u8; 10];
+    requesting_port_identity.copy_from_slice(&delay_data[10..20]);
+
+    Ok(DelayRespMessage {
+        _header: header,
+        receive_timestamp,
+        requesting_port_identity,
+    })
+}
+
 /// Extract vendor name from clock identity string using OUI lookup
 pub fn get_vendor_by_clock_identity(clock_identity: &str) -> Option<&'static str> {
     // Extract first 6 bytes from clock identity
@@ -1542,7 +1823,7 @@ impl PtpTracker {
         }
 
         // Parse PTP header
-        let header = match self.parse_ptp_header(data) {
+        let header = match parse_ptp_header(data) {
             Ok(h) => h,
             Err(_) => return Ok(None), // Invalid header
         };
@@ -1580,146 +1861,6 @@ impl PtpTracker {
             _raw_packet_data: raw_packet.data.clone(),
         };
 
-        // Parse messages first if needed to avoid borrowing conflicts
-        let announce_msg = if header.message_type == PtpMessageType::Announce {
-            self.parse_announce_message(data).ok()
-        } else {
-            None
-        };
-
-        let sync_msg = if header.message_type == PtpMessageType::Sync {
-            self.parse_sync_message(data).ok()
-        } else {
-            None
-        };
-
-        let followup_msg = if header.message_type == PtpMessageType::FollowUp {
-            self.parse_follow_up_message(data).ok()
-        } else {
-            None
-        };
-
-        let pdelay_req_msg = if header.message_type == PtpMessageType::PDelayReq {
-            match header.version {
-                1 => None, // PTPv1 doesn't have PDelay messages
-                2 => self.parse_pdelay_req_message(data).ok(),
-                _ => None,
-            }
-        } else {
-            None
-        };
-
-        let pdelay_resp_msg = if header.message_type == PtpMessageType::PDelayResp {
-            match header.version {
-                1 => None, // PTPv1 doesn't have PDelay messages
-                2 => self.parse_pdelay_resp_message(data).ok(),
-                _ => None,
-            }
-        } else {
-            None
-        };
-
-        let pdelay_resp_followup_msg = if header.message_type == PtpMessageType::PDelayRespFollowUp
-        {
-            match header.version {
-                1 => None, // PTPv1 doesn't have PDelay messages
-                2 => self.parse_pdelay_resp_followup_message(data).ok(),
-                _ => None,
-            }
-        } else {
-            None
-        };
-
-        let delay_req_msg = if header.message_type == PtpMessageType::DelayReq {
-            self.parse_delay_req_message(data).ok()
-        } else {
-            None
-        };
-
-        let delay_resp_msg = if header.message_type == PtpMessageType::DelayResp {
-            self.parse_delay_resp_message(data).ok()
-        } else {
-            None
-        };
-
-        // Set details based on message type
-        packet.details = match header.message_type {
-            PtpMessageType::Sync => {
-                if let Some(ref msg) = sync_msg {
-                    Some(format!(
-                        "TS: {}",
-                        Self::format_timestamp_bytes(&msg.origin_timestamp)
-                    ))
-                } else {
-                    None
-                }
-            }
-            PtpMessageType::FollowUp => {
-                if let Some(ref msg) = followup_msg {
-                    Some(format!(
-                        "TS: {}",
-                        Self::format_timestamp_bytes(&msg.precise_origin_timestamp)
-                    ))
-                } else {
-                    None
-                }
-            }
-            PtpMessageType::DelayReq => {
-                if let Some(ref msg) = delay_req_msg {
-                    Some(format!(
-                        "TS: {}",
-                        Self::format_timestamp_bytes(&msg.origin_timestamp)
-                    ))
-                } else {
-                    None
-                }
-            }
-            PtpMessageType::DelayResp => {
-                if let Some(ref msg) = delay_resp_msg {
-                    Some(format!(
-                        "TS: {}, P: {}",
-                        Self::format_timestamp_bytes(&msg.receive_timestamp),
-                        Self::format_port_identity(&msg.requesting_port_identity)
-                    ))
-                } else {
-                    None
-                }
-            }
-            PtpMessageType::PDelayReq => {
-                if let Some(ref msg) = pdelay_req_msg {
-                    Some(format!(
-                        "TS: {}",
-                        Self::format_timestamp_bytes(&msg.origin_timestamp)
-                    ))
-                } else {
-                    None
-                }
-            }
-            PtpMessageType::PDelayResp => {
-                if let Some(ref msg) = pdelay_resp_msg {
-                    Some(format!(
-                        "TS: {}, P: {}",
-                        Self::format_timestamp_bytes(&msg.request_receipt_timestamp),
-                        Self::format_port_identity(&msg.requesting_port_identity)
-                    ))
-                } else {
-                    None
-                }
-            }
-            PtpMessageType::PDelayRespFollowUp => {
-                if let Some(ref msg) = pdelay_resp_followup_msg {
-                    Some(format!(
-                        "TS: {}, P: {}",
-                        Self::format_timestamp_bytes(&msg.response_origin_timestamp),
-                        Self::format_port_identity(&msg.requesting_port_identity)
-                    ))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
         // Get or create host entry
         let host = self.hosts.entry(clock_id.clone()).or_insert_with(|| {
             PtpHost::new(clock_id.clone(), src_addr.ip(), packet.interface.clone())
@@ -1744,257 +1885,305 @@ impl PtpTracker {
         // Process message based on type
         match header.message_type {
             PtpMessageType::Announce => {
-                host.announce_count += 1;
-                if let Some(announce) = announce_msg {
-                    host.update_from_announce(&announce);
-                    packet.details = Some(format!(
-                        "Priority1: {}, ClockClass: {}, Accuracy: {}, Priority2: {}, StepsRemoved: {}",
-                        announce.primary_transmitter_priority_1,
-                        announce.primary_transmitter_clock_quality[0],
-                        announce.primary_transmitter_clock_quality[1],
-                        announce.primary_transmitter_priority_2,
-                        announce.steps_removed
-                    ));
-                }
+                match parse_announce_message(data) {
+                    Ok(announce) => {
+                        host.announce_count += 1;
+                        host.update_from_announce(&announce);
+                        packet.details = Some(format!(
+                            "Priority1: {}, ClockClass: {}, Accuracy: {}, Priority2: {}, StepsRemoved: {}",
+                            announce.primary_transmitter_priority_1,
+                            announce.primary_transmitter_clock_quality[0],
+                            announce.primary_transmitter_clock_quality[1],
+                            announce.primary_transmitter_priority_2,
+                            announce.steps_removed
+                        ));
+                    }
+                    Err(err) => {
+                        packet.details = Some(format!("Error parsing announce message: {}", err));
+                    }
+                };
             }
             PtpMessageType::Sync => {
-                host.sync_count += 1;
-                host.last_sync_timestamp = Some(std::time::Instant::now());
+                match parse_sync_message(data) {
+                    Ok(sync_msg) => {
+                        host.sync_count += 1;
+                        host.last_sync_timestamp = Some(std::time::Instant::now());
 
-                // Extract origin timestamp from Sync message
-                if let Some(sync_msg) = sync_msg {
-                    host.sync_origin_timestamp = Some(sync_msg.origin_timestamp);
-                    host.last_origin_timestamp = Some(sync_msg.origin_timestamp);
-                    host.timestamp_source = Some(TimestampSource::Sync);
-                    packet.details = Some(format!("Origin: {}", host.format_sync_timestamp()));
-                }
+                        host.sync_origin_timestamp = Some(sync_msg.origin_timestamp);
+                        host.last_origin_timestamp = Some(sync_msg.origin_timestamp);
+                        host.timestamp_source = Some(TimestampSource::Sync);
+                        packet.details = Some(format!("Origin: {}", host.format_sync_timestamp()));
 
-                // Record this as a recent sync sender for this domain
-                let domain_senders = self
-                    .recent_sync_senders
-                    .entry(header.domain_number)
-                    .or_insert_with(Vec::new);
-                let now = std::time::Instant::now();
+                        // Record this as a recent sync sender for this domain
+                        let domain_senders = self
+                            .recent_sync_senders
+                            .entry(header.domain_number)
+                            .or_insert_with(Vec::new);
+                        let now = std::time::Instant::now();
 
-                // Add or update this sender
-                if let Some(existing) = domain_senders.iter_mut().find(|(id, _)| id == &clock_id) {
-                    existing.1 = now;
-                } else {
-                    domain_senders.push((clock_id.clone(), now));
-                }
+                        // Add or update this sender
+                        if let Some(existing) =
+                            domain_senders.iter_mut().find(|(id, _)| id == &clock_id)
+                        {
+                            existing.1 = now;
+                        } else {
+                            domain_senders.push((clock_id.clone(), now));
+                        }
 
-                // Keep only recent senders (last 60 seconds)
-                domain_senders.retain(|(_, timestamp)| {
-                    now.duration_since(*timestamp) < Duration::from_secs(60)
-                });
+                        // Keep only recent senders (last 60 seconds)
+                        domain_senders.retain(|(_, timestamp)| {
+                            now.duration_since(*timestamp) < Duration::from_secs(60)
+                        });
 
-                // If we see sync messages but no announce messages, infer state
-                if host.announce_count == 0 {
-                    // Sync messages usually come from (primary) transmitters
-                    host.state = PtpState::Transmitter;
-                    host.selected_transmitter_id = None; // Transmitters don't receive from anyone
+                        // If we see sync messages but no announce messages, infer state
+                        if host.announce_count == 0 {
+                            // Sync messages usually come from (primary) transmitters
+                            host.state = PtpState::Transmitter;
+                            host.selected_transmitter_id = None; // Transmitters don't receive from anyone
+                        }
+                    }
+                    Err(err) => {
+                        packet.details = Some(format!("Error parsing announce message: {}", err));
+                    }
                 }
             }
             PtpMessageType::DelayReq => {
-                host.delay_req_count += 1;
-                if let Some(delay_req) = delay_req_msg {
-                    packet.details = Some(format!(
-                        "Origin: {}",
-                        PtpHost::format_ptp_timestamp(&delay_req.origin_timestamp)
-                    ));
-                }
+                match parse_delay_req_message(data) {
+                    Ok(delay_req_msg) => {
+                        host.delay_req_count += 1;
+                        packet.details = Some(format!(
+                            "Origin: {}",
+                            PtpHost::format_ptp_timestamp(&delay_req_msg.origin_timestamp)
+                        ));
 
-                // Delay requests are sent by receivers
-                if host.announce_count == 0 {
-                    host.state = PtpState::Receiver;
-                }
+                        // Delay requests are sent by receivers
+                        if host.announce_count == 0 {
+                            host.state = PtpState::Receiver;
+                        }
 
-                // Find the most recent sync sender in this domain - this is the chosen transmitter
-                // Look for sync traffic within the last 10 seconds as it should be recent
-                let now = std::time::Instant::now();
-                if let Some(domain_senders) = self.recent_sync_senders.get(&header.domain_number) {
-                    // Find the most recent sync sender that's still active (within last 10 seconds)
-                    if let Some((transmitter_id, _sync_time)) = domain_senders
-                        .iter()
-                        .filter(|(_, timestamp)| {
-                            now.duration_since(*timestamp) < Duration::from_secs(10)
-                        })
-                        .max_by_key(|(_, timestamp)| *timestamp)
-                    {
-                        host.selected_transmitter_id = Some(transmitter_id.clone());
-                        host.selected_transmitter_confidence = 1.0; // High confidence - recent sync traffic
-                    } else if let Some((transmitter_id, _)) = domain_senders
-                        .iter()
-                        .max_by_key(|(_, timestamp)| *timestamp)
-                    {
-                        // Fall back to any recent sync sender even if slightly older
-                        host.selected_transmitter_id = Some(transmitter_id.clone());
-                        host.selected_transmitter_confidence = 0.5; // Medium confidence - older sync traffic
-                    } else if host.selected_transmitter_id.is_none() {
-                        host.selected_transmitter_id = Some("No recent sync traffic".to_string());
-                        host.selected_transmitter_confidence = 0.0;
+                        // Find the most recent sync sender in this domain - this is the chosen transmitter
+                        // Look for sync traffic within the last 10 seconds as it should be recent
+                        let now = std::time::Instant::now();
+                        if let Some(domain_senders) =
+                            self.recent_sync_senders.get(&header.domain_number)
+                        {
+                            // Find the most recent sync sender that's still active (within last 10 seconds)
+                            if let Some((transmitter_id, _sync_time)) = domain_senders
+                                .iter()
+                                .filter(|(_, timestamp)| {
+                                    now.duration_since(*timestamp) < Duration::from_secs(10)
+                                })
+                                .max_by_key(|(_, timestamp)| *timestamp)
+                            {
+                                host.selected_transmitter_id = Some(transmitter_id.clone());
+                                host.selected_transmitter_confidence = 1.0; // High confidence - recent sync traffic
+                            } else if let Some((transmitter_id, _)) = domain_senders
+                                .iter()
+                                .max_by_key(|(_, timestamp)| *timestamp)
+                            {
+                                // Fall back to any recent sync sender even if slightly older
+                                host.selected_transmitter_id = Some(transmitter_id.clone());
+                                host.selected_transmitter_confidence = 0.5; // Medium confidence - older sync traffic
+                            } else if host.selected_transmitter_id.is_none() {
+                                host.selected_transmitter_id =
+                                    Some("No recent sync traffic".to_string());
+                                host.selected_transmitter_confidence = 0.0;
+                            }
+                        } else if host.selected_transmitter_id.is_none() {
+                            host.selected_transmitter_id = Some("No sync traffic seen".to_string());
+                            host.selected_transmitter_confidence = 0.0;
+                        }
                     }
-                } else if host.selected_transmitter_id.is_none() {
-                    host.selected_transmitter_id = Some("No sync traffic seen".to_string());
-                    host.selected_transmitter_confidence = 0.0;
+                    Err(err) => {
+                        packet.details =
+                            Some(format!("Error parsing delay request message: {}", err));
+                    }
                 }
             }
             PtpMessageType::DelayResp => {
-                host.delay_resp_count += 1;
-                if let Some(delay_resp) = delay_resp_msg {
-                    packet.details = Some(format!(
-                        "Receive: {}, Requesting: {}",
-                        PtpHost::format_ptp_timestamp(&delay_resp.receive_timestamp),
-                        format!(
-                            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
-                            delay_resp.requesting_port_identity[0],
-                            delay_resp.requesting_port_identity[1],
-                            delay_resp.requesting_port_identity[2],
-                            delay_resp.requesting_port_identity[3],
-                            delay_resp.requesting_port_identity[4],
-                            delay_resp.requesting_port_identity[5],
-                            delay_resp.requesting_port_identity[6],
-                            delay_resp.requesting_port_identity[7],
-                            u16::from_be_bytes([
-                                delay_resp.requesting_port_identity[8],
-                                delay_resp.requesting_port_identity[9]
-                            ])
-                        )
-                    ));
-                }
+                match parse_delay_resp_message(data) {
+                    Ok(delay_resp_msg) => {
+                        host.delay_resp_count += 1;
+                        packet.details = Some(format!(
+                            "Receive: {}, Requesting: {}",
+                            PtpHost::format_ptp_timestamp(&delay_resp_msg.receive_timestamp),
+                            format!(
+                                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
+                                delay_resp_msg.requesting_port_identity[0],
+                                delay_resp_msg.requesting_port_identity[1],
+                                delay_resp_msg.requesting_port_identity[2],
+                                delay_resp_msg.requesting_port_identity[3],
+                                delay_resp_msg.requesting_port_identity[4],
+                                delay_resp_msg.requesting_port_identity[5],
+                                delay_resp_msg.requesting_port_identity[6],
+                                delay_resp_msg.requesting_port_identity[7],
+                                u16::from_be_bytes([
+                                    delay_resp_msg.requesting_port_identity[8],
+                                    delay_resp_msg.requesting_port_identity[9]
+                                ])
+                            )
+                        ));
 
-                // Delay responses are sent by (primary) transmitters
-                if host.announce_count == 0 {
-                    host.state = PtpState::Transmitter;
-                    host.selected_transmitter_id = None; // Transmitters don't receive from anyone
+                        // Delay responses are sent by (primary) transmitters
+                        if host.announce_count == 0 {
+                            host.state = PtpState::Transmitter;
+                            host.selected_transmitter_id = None; // Transmitters don't receive from anyone
+                        }
+                    }
+                    Err(err) => {
+                        packet.details =
+                            Some(format!("Error parsing delay response message: {}", err));
+                    }
                 }
             }
             PtpMessageType::PDelayReq => {
-                host.pdelay_req_count += 1;
-                // PDelay requests are used for peer-to-peer delay measurement
-                // In P2P mode, each node measures delay with its neighbors directly
-                // This doesn't indicate transmitter-receiver hierarchy like DelayReq does
-                if let Some(pdelay_req) = pdelay_req_msg {
-                    // Could extract timing information if needed for analysis
-                    packet.details = Some(format!(
-                        "Origin: {}",
-                        PtpHost::format_ptp_timestamp(&pdelay_req.origin_timestamp)
-                    ));
-                }
+                match parse_pdelay_req_message(data) {
+                    Ok(pdelay_req_msg) => {
+                        host.pdelay_req_count += 1;
+                        // PDelay requests are used for peer-to-peer delay measurement
+                        // In P2P mode, each node measures delay with its neighbors directly
+                        // Could extract timing information if needed for analysis
+                        packet.details = Some(format!(
+                            "Origin: {}",
+                            PtpHost::format_ptp_timestamp(&pdelay_req_msg.origin_timestamp)
+                        ));
 
-                if host.announce_count == 0 {
-                    // If we haven't seen announce messages, we can't determine if this is a transmitter or receiver
-                    // Keep current state or set to listening
-                    if host.state == PtpState::Unknown {
-                        host.state = PtpState::Listening;
+                        if host.announce_count == 0 {
+                            // If we haven't seen announce messages, we can't determine if this is a transmitter or receiver
+                            // Keep current state or set to listening
+                            if host.state == PtpState::Unknown {
+                                host.state = PtpState::Listening;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        packet.details = Some(format!("Error parsing PDelayReq message: {}", err));
                     }
                 }
             }
             PtpMessageType::PDelayResp => {
-                host.pdelay_resp_count += 1;
-                // PDelay responses are sent in response to PDelay requests
-                // These contain receive and transmit timestamps for delay calculation
-                // Like PDelayReq, they don't indicate transmitter-receiver relationship
-                if let Some(pdelay_resp) = pdelay_resp_msg {
-                    // Could extract timing information and requesting port identity if needed
-                    packet.details = Some(format!(
-                        "Request Receipt: {}, Requesting: {}",
-                        PtpHost::format_ptp_timestamp(&pdelay_resp.request_receipt_timestamp),
-                        format!(
-                            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
-                            pdelay_resp.requesting_port_identity[0],
-                            pdelay_resp.requesting_port_identity[1],
-                            pdelay_resp.requesting_port_identity[2],
-                            pdelay_resp.requesting_port_identity[3],
-                            pdelay_resp.requesting_port_identity[4],
-                            pdelay_resp.requesting_port_identity[5],
-                            pdelay_resp.requesting_port_identity[6],
-                            pdelay_resp.requesting_port_identity[7],
-                            u16::from_be_bytes([
-                                pdelay_resp.requesting_port_identity[8],
-                                pdelay_resp.requesting_port_identity[9]
-                            ])
-                        )
-                    ));
-                }
+                match parse_pdelay_resp_message(data) {
+                    Ok(pdelay_resp_msg) => {
+                        host.pdelay_resp_count += 1;
+                        // PDelay responses are sent in response to PDelay requests
+                        // These contain receive and transmit timestamps for delay calculation
+                        // Like PDelayReq, they don't indicate transmitter-receiver relationship
+                        packet.details = Some(format!(
+                            "Request Receipt: {}, Requesting: {}",
+                            PtpHost::format_ptp_timestamp(
+                                &pdelay_resp_msg.request_receipt_timestamp
+                            ),
+                            format!(
+                                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
+                                pdelay_resp_msg.requesting_port_identity[0],
+                                pdelay_resp_msg.requesting_port_identity[1],
+                                pdelay_resp_msg.requesting_port_identity[2],
+                                pdelay_resp_msg.requesting_port_identity[3],
+                                pdelay_resp_msg.requesting_port_identity[4],
+                                pdelay_resp_msg.requesting_port_identity[5],
+                                pdelay_resp_msg.requesting_port_identity[6],
+                                pdelay_resp_msg.requesting_port_identity[7],
+                                u16::from_be_bytes([
+                                    pdelay_resp_msg.requesting_port_identity[8],
+                                    pdelay_resp_msg.requesting_port_identity[9]
+                                ])
+                            )
+                        ));
 
-                if host.announce_count == 0 {
-                    if host.state == PtpState::Unknown {
-                        host.state = PtpState::Listening;
+                        if host.announce_count == 0 {
+                            if host.state == PtpState::Unknown {
+                                host.state = PtpState::Listening;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        packet.details = Some(format!("Error parsing PDelayResp message: {}", err));
                     }
                 }
             }
             PtpMessageType::PDelayRespFollowUp => {
-                host.pdelay_resp_follow_up_count += 1;
-                // PDelay response follow-up messages provide precise transmit timestamps
-                // for peer delay measurements in two-step mode. This completes the
-                // peer delay measurement cycle: PDelayReq -> PDelayResp -> PDelayRespFollowUp
-                if let Some(pdelay_resp_followup) = pdelay_resp_followup_msg {
-                    // Could extract precise timing information if needed
-                    packet.details = Some(format!(
-                        "Response Origin: {}, Requesting: {}",
-                        PtpHost::format_ptp_timestamp(
-                            &pdelay_resp_followup.response_origin_timestamp
-                        ),
-                        format!(
-                            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
-                            pdelay_resp_followup.requesting_port_identity[0],
-                            pdelay_resp_followup.requesting_port_identity[1],
-                            pdelay_resp_followup.requesting_port_identity[2],
-                            pdelay_resp_followup.requesting_port_identity[3],
-                            pdelay_resp_followup.requesting_port_identity[4],
-                            pdelay_resp_followup.requesting_port_identity[5],
-                            pdelay_resp_followup.requesting_port_identity[6],
-                            pdelay_resp_followup.requesting_port_identity[7],
-                            u16::from_be_bytes([
-                                pdelay_resp_followup.requesting_port_identity[8],
-                                pdelay_resp_followup.requesting_port_identity[9]
-                            ])
-                        )
-                    ));
-                }
+                match parse_pdelay_resp_followup_message(data) {
+                    Ok(pdelay_followup_msg) => {
+                        host.pdelay_resp_follow_up_count += 1;
+                        // PDelay response follow-up messages provide precise transmit timestamps
+                        // for peer delay measurements in two-step mode. This completes the
+                        // peer delay measurement cycle: PDelayReq -> PDelayResp -> PDelayRespFollowUp
+                        // Could extract precise timing information if needed
+                        packet.details = Some(format!(
+                            "Response Origin: {}, Requesting: {}",
+                            PtpHost::format_ptp_timestamp(
+                                &pdelay_followup_msg.response_origin_timestamp
+                            ),
+                            format!(
+                                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:04x}",
+                                pdelay_followup_msg.requesting_port_identity[0],
+                                pdelay_followup_msg.requesting_port_identity[1],
+                                pdelay_followup_msg.requesting_port_identity[2],
+                                pdelay_followup_msg.requesting_port_identity[3],
+                                pdelay_followup_msg.requesting_port_identity[4],
+                                pdelay_followup_msg.requesting_port_identity[5],
+                                pdelay_followup_msg.requesting_port_identity[6],
+                                pdelay_followup_msg.requesting_port_identity[7],
+                                u16::from_be_bytes([
+                                    pdelay_followup_msg.requesting_port_identity[8],
+                                    pdelay_followup_msg.requesting_port_identity[9]
+                                ])
+                            )
+                        ));
 
-                if host.announce_count == 0 {
-                    if host.state == PtpState::Unknown {
-                        host.state = PtpState::Listening;
+                        if host.announce_count == 0 {
+                            if host.state == PtpState::Unknown {
+                                host.state = PtpState::Listening;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        packet.details =
+                            Some(format!("Error parsing PDelayRespFollowUp message: {}", err));
                     }
                 }
             }
             PtpMessageType::FollowUp => {
-                // Extract precise origin timestamp from Follow-Up message
-                if let Some(followup_msg) = followup_msg {
-                    host.followup_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
-                    host.last_origin_timestamp = Some(followup_msg.precise_origin_timestamp);
-                    host.timestamp_source = Some(TimestampSource::FollowUp);
-                    packet.details = Some(format!(
-                        "Precise Origin: {}",
-                        host.format_followup_timestamp()
-                    ));
-                }
+                match parse_follow_up_message(data) {
+                    Ok(follow_up_msg) => {
+                        host.followup_origin_timestamp =
+                            Some(follow_up_msg.precise_origin_timestamp);
+                        host.last_origin_timestamp = Some(follow_up_msg.precise_origin_timestamp);
+                        host.timestamp_source = Some(TimestampSource::FollowUp);
+                        packet.details = Some(format!(
+                            "Precise Origin: {}",
+                            host.format_followup_timestamp()
+                        ));
+                        // Record this as a recent sync sender for this domain (follow-up correlates with sync)
+                        let domain_senders = self
+                            .recent_sync_senders
+                            .entry(header.domain_number)
+                            .or_insert_with(Vec::new);
+                        let now = std::time::Instant::now();
 
-                // Record this as a recent sync sender for this domain (follow-up correlates with sync)
-                let domain_senders = self
-                    .recent_sync_senders
-                    .entry(header.domain_number)
-                    .or_insert_with(Vec::new);
-                let now = std::time::Instant::now();
+                        // Add or update this sender
+                        if let Some(existing) =
+                            domain_senders.iter_mut().find(|(id, _)| id == &clock_id)
+                        {
+                            existing.1 = now;
+                        } else {
+                            domain_senders.push((clock_id.clone(), now));
+                        }
 
-                // Add or update this sender
-                if let Some(existing) = domain_senders.iter_mut().find(|(id, _)| id == &clock_id) {
-                    existing.1 = now;
-                } else {
-                    domain_senders.push((clock_id.clone(), now));
-                }
+                        // Keep only recent senders (last 60 seconds)
+                        domain_senders.retain(|(_, timestamp)| {
+                            now.duration_since(*timestamp) < Duration::from_secs(60)
+                        });
 
-                // Keep only recent senders (last 60 seconds)
-                domain_senders.retain(|(_, timestamp)| {
-                    now.duration_since(*timestamp) < Duration::from_secs(60)
-                });
-
-                // Follow-up messages are sent by transmitters for two-step timing
-                if host.announce_count == 0 {
-                    host.state = PtpState::Transmitter;
-                    host.selected_transmitter_id = None; // Transmitters don't receive from anyone
+                        // Follow-up messages are sent by transmitters for two-step timing
+                        if host.announce_count == 0 {
+                            host.state = PtpState::Transmitter;
+                            host.selected_transmitter_id = None; // Transmitters don't receive from anyone
+                        }
+                    }
+                    Err(err) => {
+                        packet.details = Some(format!("Error parsing FollowUp message: {}", err));
+                    }
                 }
             }
             _ => {
@@ -2009,287 +2198,6 @@ impl PtpTracker {
         self.cleanup_old_sync_senders();
 
         Ok(Some(packet))
-    }
-
-    fn parse_ptp_header(&self, data: &[u8]) -> Result<PtpHeader> {
-        if data.len() < 34 {
-            return Err(anyhow::anyhow!("Packet too short for PTP header"));
-        }
-
-        let message_type = PtpMessageType::try_from(data[0] & 0x0f)
-            .map_err(|_| anyhow::anyhow!("Unknown PTP message type"))?;
-
-        let version = data[1] & 0x0f;
-        let message_length = u16::from_be_bytes([data[2], data[3]]);
-        let domain_number = data[4];
-        let flags = [data[6], data[7]];
-
-        // Parse correction field (64-bit signed integer)
-        let correction_field = i64::from_be_bytes([
-            data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
-        ]);
-
-        // Source port identity (10 bytes: 8 for clock identity + 2 for port number)
-        let mut source_port_identity = [0u8; 10];
-        source_port_identity.copy_from_slice(&data[20..30]);
-
-        let sequence_id = u16::from_be_bytes([data[30], data[31]]);
-        let _control_field = data[32];
-        let log_message_interval = data[33] as i8;
-
-        Ok(PtpHeader {
-            message_type,
-            version,
-            message_length,
-            domain_number,
-            flags,
-            correction_field,
-            source_port_identity,
-            sequence_id,
-            _control_field,
-            log_message_interval,
-        })
-    }
-
-    fn parse_announce_message(&self, data: &[u8]) -> Result<AnnounceMessage> {
-        if data.len() < 64 {
-            // 34 (header) + 30 (announce content) = 64 minimum
-            return Err(anyhow::anyhow!("Packet too short for Announce message"));
-        }
-
-        let header = self.parse_ptp_header(data)?;
-
-        // Parse announce-specific fields starting at byte 34
-        let announce_data = &data[34..];
-
-        if announce_data.len() < 30 {
-            return Err(anyhow::anyhow!("Announce data too short"));
-        }
-
-        let mut origin_timestamp = [0u8; 10];
-        origin_timestamp.copy_from_slice(&announce_data[0..10]);
-
-        let current_utc_offset = i16::from_be_bytes([announce_data[10], announce_data[11]]);
-
-        // Skip reserved byte at index 12
-        let primary_transmitter_priority_1 = announce_data[13];
-
-        let mut primary_transmitter_clock_quality = [0u8; 4];
-        primary_transmitter_clock_quality.copy_from_slice(&announce_data[14..18]);
-
-        let primary_transmitter_priority_2 = announce_data[18];
-
-        let mut primary_transmitter_identity = [0u8; 8];
-        primary_transmitter_identity.copy_from_slice(&announce_data[19..27]);
-
-        let steps_removed = u16::from_be_bytes([announce_data[27], announce_data[28]]);
-        let time_source = announce_data[29];
-
-        Ok(AnnounceMessage {
-            header,
-            origin_timestamp,
-            current_utc_offset,
-            primary_transmitter_priority_1,
-            primary_transmitter_clock_quality,
-            primary_transmitter_priority_2,
-            primary_transmitter_identity,
-            steps_removed,
-            time_source,
-        })
-    }
-
-    fn parse_sync_message(&self, data: &[u8]) -> Result<SyncMessage> {
-        if data.len() < 44 {
-            // 34 (header) + 10 (origin timestamp) = 44 minimum
-            return Err(anyhow::anyhow!("Packet too short for Sync message"));
-        }
-
-        let header = self.parse_ptp_header(data)?;
-
-        // Parse sync-specific fields starting at byte 34
-        let sync_data = &data[34..];
-
-        if sync_data.len() < 10 {
-            return Err(anyhow::anyhow!("Sync data too short"));
-        }
-
-        let mut origin_timestamp = [0u8; 10];
-        origin_timestamp.copy_from_slice(&sync_data[0..10]);
-
-        Ok(SyncMessage {
-            _header: header,
-            origin_timestamp,
-        })
-    }
-
-    fn parse_follow_up_message(&self, data: &[u8]) -> Result<FollowUpMessage> {
-        if data.len() < 44 {
-            // 34 (header) + 10 (precise origin timestamp) = 44 minimum
-            return Err(anyhow::anyhow!("Packet too short for Follow-Up message"));
-        }
-
-        let header = self.parse_ptp_header(data)?;
-
-        // Parse follow-up specific fields starting at byte 34
-        let followup_data = &data[34..];
-
-        if followup_data.len() < 10 {
-            return Err(anyhow::anyhow!("Follow-Up data too short"));
-        }
-
-        let mut precise_origin_timestamp = [0u8; 10];
-        precise_origin_timestamp.copy_from_slice(&followup_data[0..10]);
-
-        Ok(FollowUpMessage {
-            _header: header,
-            precise_origin_timestamp,
-        })
-    }
-
-    fn parse_pdelay_req_message(&self, data: &[u8]) -> Result<PDelayReqMessage> {
-        if data.len() < 54 {
-            // 34 (header) + 20 (pdelay req content) = 54 minimum
-            return Err(anyhow::anyhow!(
-                "Packet too short for PDelay Request message"
-            ));
-        }
-
-        let header = self.parse_ptp_header(data)?;
-
-        // Parse PDelay Request specific fields starting at byte 34
-        let pdelay_data = &data[34..];
-
-        if pdelay_data.len() < 20 {
-            return Err(anyhow::anyhow!("PDelay Request data too short"));
-        }
-
-        let mut origin_timestamp = [0u8; 10];
-        origin_timestamp.copy_from_slice(&pdelay_data[0..10]);
-
-        let mut _reserved = [0u8; 10];
-        _reserved.copy_from_slice(&pdelay_data[10..20]);
-
-        Ok(PDelayReqMessage {
-            _header: header,
-            origin_timestamp,
-            _reserved,
-        })
-    }
-
-    fn parse_pdelay_resp_message(&self, data: &[u8]) -> Result<PDelayRespMessage> {
-        if data.len() < 54 {
-            // 34 (header) + 20 (pdelay resp content) = 54 minimum
-            return Err(anyhow::anyhow!(
-                "Packet too short for PDelay Response message"
-            ));
-        }
-
-        let header = self.parse_ptp_header(data)?;
-
-        // Parse PDelay Response specific fields starting at byte 34
-        let pdelay_data = &data[34..];
-
-        if pdelay_data.len() < 20 {
-            return Err(anyhow::anyhow!("PDelay Response data too short"));
-        }
-
-        let mut request_receipt_timestamp = [0u8; 10];
-        request_receipt_timestamp.copy_from_slice(&pdelay_data[0..10]);
-
-        let mut requesting_port_identity = [0u8; 10];
-        requesting_port_identity.copy_from_slice(&pdelay_data[10..20]);
-
-        Ok(PDelayRespMessage {
-            _header: header,
-            request_receipt_timestamp,
-            requesting_port_identity,
-        })
-    }
-
-    fn parse_pdelay_resp_followup_message(&self, data: &[u8]) -> Result<PDelayRespFollowUpMessage> {
-        if data.len() < 54 {
-            // 34 (header) + 20 (pdelay resp follow-up content) = 54 minimum
-            return Err(anyhow::anyhow!(
-                "Packet too short for PDelay Response Follow-Up message"
-            ));
-        }
-
-        let header = self.parse_ptp_header(data)?;
-
-        // Parse PDelay Response Follow-Up specific fields starting at byte 34
-        let pdelay_data = &data[34..];
-
-        if pdelay_data.len() < 20 {
-            return Err(anyhow::anyhow!("PDelay Response Follow-Up data too short"));
-        }
-
-        let mut response_origin_timestamp = [0u8; 10];
-        response_origin_timestamp.copy_from_slice(&pdelay_data[0..10]);
-
-        let mut requesting_port_identity = [0u8; 10];
-        requesting_port_identity.copy_from_slice(&pdelay_data[10..20]);
-
-        Ok(PDelayRespFollowUpMessage {
-            _header: header,
-            response_origin_timestamp,
-            requesting_port_identity,
-        })
-    }
-
-    fn parse_delay_req_message(&self, data: &[u8]) -> Result<DelayReqMessage> {
-        if data.len() < 44 {
-            // 34 (header) + 10 (origin timestamp) = 44 minimum
-            return Err(anyhow::anyhow!(
-                "Packet too short for Delay Request message"
-            ));
-        }
-
-        let header = self.parse_ptp_header(data)?;
-
-        // Parse Delay Request specific fields starting at byte 34
-        let delay_data = &data[34..];
-
-        if delay_data.len() < 10 {
-            return Err(anyhow::anyhow!("Delay Request data too short"));
-        }
-
-        let mut origin_timestamp = [0u8; 10];
-        origin_timestamp.copy_from_slice(&delay_data[0..10]);
-
-        Ok(DelayReqMessage {
-            _header: header,
-            origin_timestamp,
-        })
-    }
-
-    fn parse_delay_resp_message(&self, data: &[u8]) -> Result<DelayRespMessage> {
-        if data.len() < 54 {
-            // 34 (header) + 20 (delay resp content) = 54 minimum
-            return Err(anyhow::anyhow!(
-                "Packet too short for Delay Response message"
-            ));
-        }
-
-        let header = self.parse_ptp_header(data)?;
-
-        // Parse Delay Response specific fields starting at byte 34
-        let delay_data = &data[34..];
-
-        if delay_data.len() < 20 {
-            return Err(anyhow::anyhow!("Delay Response data too short"));
-        }
-
-        let mut receive_timestamp = [0u8; 10];
-        receive_timestamp.copy_from_slice(&delay_data[0..10]);
-
-        let mut requesting_port_identity = [0u8; 10];
-        requesting_port_identity.copy_from_slice(&delay_data[10..20]);
-
-        Ok(DelayRespMessage {
-            _header: header,
-            receive_timestamp,
-            requesting_port_identity,
-        })
     }
 
     fn format_timestamp_bytes(timestamp: &[u8; 10]) -> String {
