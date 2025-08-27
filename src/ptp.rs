@@ -64,6 +64,9 @@ pub struct PtpHostStateTimeTransmitter {
     pub last_sync_origin_timestamp: Option<PtpTimestamp>,
     pub last_followup_origin_timestamp: Option<PtpTimestamp>,
     pub current_utc_offset: Option<PtpUtcOffset>,
+    /// True if this transmitter has been selected as the Best Master Clock in its domain
+    /// BMCA winners are displayed as "PTT" (Primary Time Transmitter) in the UI
+    pub is_bmca_winner: bool,
 }
 
 impl Default for PtpHostStateTimeTransmitter {
@@ -82,6 +85,7 @@ impl Default for PtpHostStateTimeTransmitter {
             last_sync_origin_timestamp: None,
             last_followup_origin_timestamp: None,
             current_utc_offset: None,
+            is_bmca_winner: false,
         }
     }
 }
@@ -125,6 +129,101 @@ impl PtpHostStateTimeTransmitter {
 
     fn update_from_follow_up(&mut self, msg: &FollowUpMessage) {
         self.last_followup_origin_timestamp = Some(msg.precise_origin_timestamp);
+    }
+
+    /// Compare this transmitter with another for BMCA (Best Master Clock Algorithm)
+    ///
+    /// Implements IEEE 1588 BMCA comparison algorithm. Returns std::cmp::Ordering where:
+    /// - Less = this transmitter is better (should win)
+    /// - Greater = other transmitter is better
+    /// - Equal = transmitters are equivalent (shouldn't happen due to clock identity tiebreaker)
+    ///
+    /// Comparison order follows IEEE 1588 specification:
+    /// 1. Priority1 (lower wins)
+    /// 2. Clock Class (lower wins)
+    /// 3. Clock Accuracy (lower wins)
+    /// 4. Offset Scaled Log Variance (lower wins)
+    /// 5. Priority2 (lower wins)
+    /// 6. Clock Identity (lower wins, final tiebreaker)
+    ///
+    /// If a transmitter has data and the other doesn't, the one with data wins.
+    pub fn compare_for_bmca(
+        &self,
+        other: &Self,
+        our_clock_id: ClockIdentity,
+        other_clock_id: ClockIdentity,
+    ) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+
+        // 1. Priority1 comparison (lower is better)
+        if let (Some(our_p1), Some(other_p1)) = (self.priority1, other.priority1) {
+            match our_p1.cmp(&other_p1) {
+                Ordering::Equal => {}
+                other => return other,
+            }
+        } else if self.priority1.is_some() && other.priority1.is_none() {
+            return Ordering::Less; // We have priority1, other doesn't
+        } else if self.priority1.is_none() && other.priority1.is_some() {
+            return Ordering::Greater; // Other has priority1, we don't
+        }
+
+        // 2. Clock Class comparison (lower is better)
+        if let (Some(our_cc), Some(other_cc)) = (self.clock_class, other.clock_class) {
+            match our_cc.class().cmp(&other_cc.class()) {
+                Ordering::Equal => {}
+                other => return other,
+            }
+        } else if self.clock_class.is_some() && other.clock_class.is_none() {
+            return Ordering::Less; // We have clock class, other doesn't
+        } else if self.clock_class.is_none() && other.clock_class.is_some() {
+            return Ordering::Greater; // Other has clock class, we don't
+        }
+
+        // 3. Clock Accuracy comparison (lower is better)
+        if let (Some(our_acc), Some(other_acc)) = (self.clock_accuracy, other.clock_accuracy) {
+            match our_acc.accuracy.cmp(&other_acc.accuracy) {
+                Ordering::Equal => {}
+                other => return other,
+            }
+        } else if self.clock_accuracy.is_some() && other.clock_accuracy.is_none() {
+            return Ordering::Less; // We have accuracy, other doesn't
+        } else if self.clock_accuracy.is_none() && other.clock_accuracy.is_some() {
+            return Ordering::Greater; // Other has accuracy, we don't
+        }
+
+        // 4. Offset Scaled Log Variance comparison (lower is better)
+        if let (Some(our_var), Some(other_var)) = (
+            self.offset_scaled_log_variance,
+            other.offset_scaled_log_variance,
+        ) {
+            match our_var.cmp(&other_var) {
+                Ordering::Equal => {}
+                other => return other,
+            }
+        } else if self.offset_scaled_log_variance.is_some()
+            && other.offset_scaled_log_variance.is_none()
+        {
+            return Ordering::Less; // We have variance, other doesn't
+        } else if self.offset_scaled_log_variance.is_none()
+            && other.offset_scaled_log_variance.is_some()
+        {
+            return Ordering::Greater; // Other has variance, we don't
+        }
+
+        // 5. Priority2 comparison (lower is better)
+        if let (Some(our_p2), Some(other_p2)) = (self.priority2, other.priority2) {
+            match our_p2.cmp(&other_p2) {
+                Ordering::Equal => {}
+                other => return other,
+            }
+        } else if self.priority2.is_some() && other.priority2.is_none() {
+            return Ordering::Less; // We have priority2, other doesn't
+        } else if self.priority2.is_none() && other.priority2.is_some() {
+            return Ordering::Greater; // Other has priority2, we don't
+        }
+
+        // 6. Clock Identity comparison (lower is better - used as tiebreaker)
+        our_clock_id.clock_id.cmp(&other_clock_id.clock_id)
     }
 }
 
@@ -217,7 +316,13 @@ impl std::fmt::Display for PtpHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PtpHostState::Listening => write!(f, "Listening"),
-            PtpHostState::TimeTransmitter(_) => write!(f, "Time Transmitter"),
+            PtpHostState::TimeTransmitter(s) => {
+                if s.is_bmca_winner {
+                    write!(f, "Primary Time Transmitter")
+                } else {
+                    write!(f, "Time Transmitter")
+                }
+            }
             PtpHostState::TimeReceiver(_) => write!(f, "Time Receiver"),
         }
     }
@@ -313,8 +418,14 @@ impl PtpHostState {
     pub fn short_string(&self) -> &str {
         match self {
             PtpHostState::Listening => "L",
-            PtpHostState::TimeTransmitter(_) => "T",
-            PtpHostState::TimeReceiver(_) => "R",
+            PtpHostState::TimeTransmitter(state) => {
+                if state.is_bmca_winner {
+                    "PTT"
+                } else {
+                    "TT"
+                }
+            }
+            PtpHostState::TimeReceiver(_) => "TR",
         }
     }
 }
@@ -513,6 +624,7 @@ impl PtpTracker {
     pub async fn scan_network(&mut self) {
         self.process_ptp_messages().await;
         self.cleanup_old_sync_senders();
+        self.run_bmca_election();
     }
 
     async fn process_ptp_messages(&mut self) {
@@ -754,5 +866,242 @@ impl PtpTracker {
             .iter()
             .map(|(_, ip)| std::net::IpAddr::V4(*ip))
             .collect()
+    }
+
+    /// Run the Best Master Clock Algorithm (BMCA) election to determine the best transmitter in each domain
+    ///
+    /// This implements IEEE 1588 BMCA which compares transmitters using the following criteria (in order):
+    /// 1. Priority1 (lower is better)
+    /// 2. Clock Class (lower is better)
+    /// 3. Clock Accuracy (lower is better)
+    /// 4. Offset Scaled Log Variance (lower is better)
+    /// 5. Priority2 (lower is better)
+    /// 6. Clock Identity (lower is better, used as tiebreaker)
+    ///
+    /// The algorithm:
+    /// - Groups all transmitters by domain number
+    /// - For each domain with multiple transmitters, runs pairwise comparisons
+    /// - Marks the best transmitter as the BMCA winner (shown as "PT" in UI)
+    /// - Updates all receivers in the domain to select the BMCA winner
+    ///
+    /// Transmitters missing announce message data are considered inferior to those with complete data.
+    pub fn run_bmca_election(&mut self) {
+        use std::collections::HashMap;
+
+        // Group transmitters by domain
+        let mut domain_transmitters: HashMap<u8, Vec<ClockIdentity>> = HashMap::new();
+
+        for (clock_id, host) in &self.hosts {
+            if let (Some(domain), PtpHostState::TimeTransmitter(_)) =
+                (host.domain_number, &host.state)
+            {
+                domain_transmitters
+                    .entry(domain)
+                    .or_insert_with(Vec::new)
+                    .push(*clock_id);
+            }
+        }
+
+        // For each domain, find the best transmitter using BMCA
+        for (domain, transmitters) in domain_transmitters {
+            if transmitters.is_empty() {
+                continue;
+            }
+
+            // Only log BMCA elections when there are multiple transmitters competing
+            let log_election = transmitters.len() > 1;
+
+            // Reset all winners in this domain first
+            for clock_id in &transmitters {
+                if let Some(host) = self.hosts.get_mut(clock_id) {
+                    if let PtpHostState::TimeTransmitter(ref mut state) = host.state {
+                        state.is_bmca_winner = false;
+                    }
+                }
+            }
+
+            // Find the best transmitter by comparing all pairs
+            let mut best_clock_id = transmitters[0];
+
+            for &candidate_clock_id in &transmitters[1..] {
+                if let (Some(best_host), Some(candidate_host)) = (
+                    self.hosts.get(&best_clock_id),
+                    self.hosts.get(&candidate_clock_id),
+                ) {
+                    if let (
+                        PtpHostState::TimeTransmitter(ref best_state),
+                        PtpHostState::TimeTransmitter(ref candidate_state),
+                    ) = (&best_host.state, &candidate_host.state)
+                    {
+                        let comparison_result = candidate_state.compare_for_bmca(
+                            best_state,
+                            candidate_clock_id,
+                            best_clock_id,
+                        );
+
+                        if comparison_result == std::cmp::Ordering::Less {
+                            best_clock_id = candidate_clock_id;
+                        }
+                    }
+                }
+            }
+
+            // Mark the winner
+            if let Some(winner_host) = self.hosts.get_mut(&best_clock_id) {
+                if let PtpHostState::TimeTransmitter(ref mut state) = winner_host.state {
+                    state.is_bmca_winner = true;
+                    if log_election {
+                        eprintln!(
+                            "BMCA: Domain {} winner: {} (Primary Time Transmitter)",
+                            domain, best_clock_id
+                        );
+                    }
+                }
+            }
+
+            // Update receivers in this domain to select the BMCA winner as their transmitter
+            self.update_receivers_for_domain(domain, best_clock_id);
+        }
+    }
+
+    /// Update all receivers in a domain to select the BMCA winner as their transmitter
+    fn update_receivers_for_domain(&mut self, domain: u8, winner_clock_id: ClockIdentity) {
+        for host in self.hosts.values_mut() {
+            if host.domain_number == Some(domain) {
+                if let PtpHostState::TimeReceiver(ref mut receiver_state) = host.state {
+                    receiver_state.selected_transmitter_identity = Some(winner_clock_id);
+                    receiver_state.selected_transmitter_confidence = 1.0; // High confidence from BMCA
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod bmca_tests {
+    use super::*;
+    use crate::types::{PtpClockAccuracy, PtpClockClass};
+
+    fn create_test_transmitter_state() -> PtpHostStateTimeTransmitter {
+        PtpHostStateTimeTransmitter {
+            priority1: Some(128),
+            priority2: Some(128),
+            clock_class: Some(PtpClockClass::new(6)),
+            clock_accuracy: Some(PtpClockAccuracy::new(0x20)),
+            offset_scaled_log_variance: Some(0x4E5D),
+            steps_removed: Some(0),
+            time_source: Some(0x20),
+            ..Default::default()
+        }
+    }
+
+    fn create_test_clock_identity(id: u64) -> ClockIdentity {
+        ClockIdentity {
+            clock_id: [
+                (id >> 56) as u8,
+                (id >> 48) as u8,
+                (id >> 40) as u8,
+                (id >> 32) as u8,
+                (id >> 24) as u8,
+                (id >> 16) as u8,
+                (id >> 8) as u8,
+                id as u8,
+            ],
+        }
+    }
+
+    #[test]
+    fn test_bmca_priority1_comparison() {
+        let mut state1 = create_test_transmitter_state();
+        let mut state2 = create_test_transmitter_state();
+
+        state1.priority1 = Some(64);
+        state2.priority1 = Some(128);
+
+        let clock1 = create_test_clock_identity(1);
+        let clock2 = create_test_clock_identity(2);
+
+        // Lower priority1 should win
+        assert_eq!(
+            state1.compare_for_bmca(&state2, clock1, clock2),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            state2.compare_for_bmca(&state1, clock2, clock1),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_bmca_clock_class_comparison() {
+        let mut state1 = create_test_transmitter_state();
+        let mut state2 = create_test_transmitter_state();
+
+        // Same priority1, different clock class
+        state1.priority1 = Some(128);
+        state2.priority1 = Some(128);
+        state1.clock_class = Some(PtpClockClass::new(6)); // Better (lower)
+        state2.clock_class = Some(PtpClockClass::new(7)); // Worse (higher)
+
+        let clock1 = create_test_clock_identity(1);
+        let clock2 = create_test_clock_identity(2);
+
+        // Lower clock class should win
+        assert_eq!(
+            state1.compare_for_bmca(&state2, clock1, clock2),
+            std::cmp::Ordering::Less
+        );
+    }
+
+    #[test]
+    fn test_bmca_clock_identity_tiebreaker() {
+        let state1 = create_test_transmitter_state();
+        let state2 = create_test_transmitter_state();
+
+        // Identical parameters, should use clock identity as tiebreaker
+        let clock1 = create_test_clock_identity(0x0000000000000001);
+        let clock2 = create_test_clock_identity(0x0000000000000002);
+
+        // Lower clock identity should win
+        assert_eq!(
+            state1.compare_for_bmca(&state2, clock1, clock2),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            state2.compare_for_bmca(&state1, clock2, clock1),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_bmca_missing_data_handling() {
+        let mut state1 = create_test_transmitter_state();
+        let mut state2 = create_test_transmitter_state();
+
+        // State1 has priority1, state2 doesn't
+        state1.priority1 = Some(128);
+        state2.priority1 = None;
+
+        let clock1 = create_test_clock_identity(1);
+        let clock2 = create_test_clock_identity(2);
+
+        // Having data should be better than not having data
+        assert_eq!(
+            state1.compare_for_bmca(&state2, clock1, clock2),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            state2.compare_for_bmca(&state1, clock2, clock1),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_bmca_winner_flag() {
+        let mut state = create_test_transmitter_state();
+        assert!(!state.is_bmca_winner);
+
+        state.is_bmca_winner = true;
+        assert!(state.is_bmca_winner);
     }
 }

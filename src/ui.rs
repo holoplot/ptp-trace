@@ -823,7 +823,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         ]),
         Line::from(vec![
             Span::styled(
-                "  PT",
+                "  PTT",
                 Style::default().fg(theme.get_state_color(&time_transmitter_state)),
             ),
             Span::raw(format!(" - {} (Primary)", time_transmitter_state)),
