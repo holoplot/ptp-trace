@@ -10,6 +10,7 @@ use crate::types::{
     PDelayRespMessage, ProcessedPacket, PtpClockAccuracy, PtpClockClass, PtpCorrectionField,
     PtpHeader, PtpMessage, PtpTimestamp, PtpUtcOffset, PtpVersion, SyncMessage,
 };
+use std::rc::Rc;
 
 /// A deque that maintains a maximum capacity by removing oldest elements
 #[derive(Debug, Clone)]
@@ -31,13 +32,6 @@ impl<T> BoundedVec<T> {
         if self.items.len() > self.max_size {
             self.items.pop_front();
         }
-    }
-
-    fn to_vec(&self) -> Vec<T>
-    where
-        T: Clone,
-    {
-        self.items.iter().cloned().collect()
     }
 
     fn clear(&mut self) {
@@ -453,7 +447,7 @@ pub struct PtpHost {
 
     pub state: PtpHostState,
     pub last_correction_field: Option<PtpCorrectionField>,
-    pub packet_history: BoundedVec<ProcessedPacket>,
+    pub packet_history: BoundedVec<Rc<ProcessedPacket>>,
 }
 
 impl PtpHost {
@@ -539,7 +533,7 @@ impl PtpHost {
         self.ip_addresses.keys().any(|ip| local_ips.contains(ip))
     }
 
-    pub fn add_packet(&mut self, packet: ProcessedPacket) {
+    pub fn add_packet(&mut self, packet: Rc<ProcessedPacket>) {
         self.packet_history.push(packet);
     }
 
@@ -552,7 +546,11 @@ impl PtpHost {
     }
 
     pub fn get_packet_history(&self) -> Vec<ProcessedPacket> {
-        self.packet_history.to_vec()
+        self.packet_history
+            .items
+            .iter()
+            .map(|p| (**p).clone())
+            .collect()
     }
 
     pub fn clear_packet_history(&mut self) {
@@ -651,7 +649,7 @@ impl PtpTracker {
         };
 
         // Create packet info for recording
-        let packet = ProcessedPacket {
+        let packet = Rc::new(ProcessedPacket {
             ptp_message: msg,
             timestamp: std::time::Instant::now(),
             vlan_id: raw_packet.vlan_id,
@@ -659,7 +657,7 @@ impl PtpTracker {
             source_port: raw_packet.source_addr.port(),
             interface: raw_packet.interface_name.clone(),
             _raw_packet_data: raw_packet.data.clone(),
-        };
+        });
 
         let sending_host = self
             .hosts
@@ -671,12 +669,12 @@ impl PtpTracker {
 
         sending_host.total_messages_sent_count += 1;
         sending_host.update_from_ptp_header(msg.header());
-        sending_host.add_packet(packet.clone());
 
         match msg {
             PtpMessage::Announce(msg) => {
                 sending_host.announce_count += 1;
                 sending_host.state.update_from_announce(&msg);
+                sending_host.add_packet(packet.clone());
             }
             PtpMessage::Sync(msg) => {
                 sending_host.sync_count += 1;
@@ -697,6 +695,7 @@ impl PtpTracker {
                 } else {
                     domain_senders.push((msg.header.source_port_identity.clock_identity, now));
                 }
+                sending_host.add_packet(packet.clone());
             }
             PtpMessage::DelayReq(msg) => {
                 sending_host.delay_req_count += 1;
@@ -717,14 +716,18 @@ impl PtpTracker {
                             .update_from_recent_sync_sender(*clock_identity, age);
                     }
                 }
+                sending_host.add_packet(packet.clone());
             }
             PtpMessage::DelayResp(msg) => {
                 sending_host.delay_resp_count += 1;
+                sending_host.add_packet(packet.clone());
 
+                // Handle receiving host separately to avoid borrow checker issues
+                let receiving_clock_id = msg.requesting_port_identity.clock_identity;
                 let receiving_host = self
                     .hosts
-                    .entry(msg.requesting_port_identity.clock_identity)
-                    .or_insert_with(|| PtpHost::new(msg.requesting_port_identity.clock_identity));
+                    .entry(receiving_clock_id)
+                    .or_insert_with(|| PtpHost::new(receiving_clock_id));
 
                 receiving_host.delay_resp_count += 1;
                 receiving_host.total_messages_received_count += 1;
@@ -777,9 +780,11 @@ impl PtpTracker {
             }
             PtpMessage::Signaling(_) => {
                 sending_host.signaling_message_count += 1;
+                sending_host.add_packet(packet.clone());
             }
             PtpMessage::Management(_) => {
                 sending_host.management_message_count += 1;
+                sending_host.add_packet(packet.clone());
             }
         }
 

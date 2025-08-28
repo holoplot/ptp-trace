@@ -7,11 +7,148 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, SortColumn},
-    ptp::PtpHostState,
+    app::{App, SortColumn, TreeNode},
+    ptp::{PtpHost, PtpHostState},
     types::{format_timestamp, PtpClockAccuracy, PtpClockClass},
     version,
 };
+
+// Helper function to flatten tree nodes for display
+fn flatten_tree_nodes(nodes: &[TreeNode]) -> Vec<(&TreeNode, usize, bool)> {
+    let mut flattened = Vec::new();
+    let mut stack = Vec::new();
+    let mut index = 0;
+
+    // Push initial nodes onto stack with their sibling information
+    for (i, node) in nodes.iter().enumerate().rev() {
+        let is_last_child = i == nodes.len() - 1;
+        stack.push((node, is_last_child));
+    }
+
+    // Process nodes iteratively
+    while let Some((node, is_last_child)) = stack.pop() {
+        flattened.push((node, index, is_last_child));
+        index += 1;
+
+        // Push children in reverse order so they're processed in correct order
+        for (i, child) in node.children.iter().enumerate().rev() {
+            let child_is_last = i == node.children.len() - 1;
+            stack.push((child, child_is_last));
+        }
+    }
+
+    flattened
+}
+
+// Helper function to create a table row for a host
+fn create_host_row<'a>(
+    host: &PtpHost,
+    clock_identity_display: String,
+    actual_i: usize,
+    selected_index: usize,
+    theme: &crate::themes::Theme,
+    local_ips: &[std::net::IpAddr],
+    is_primary_transmitter: Option<bool>,
+) -> Row<'a> {
+    let state_color = theme.get_state_color(&host.state);
+
+    let time_since_last_seen = host.time_since_last_seen();
+    let last_seen_str = if time_since_last_seen.as_secs() < 60 {
+        format!("{}s", time_since_last_seen.as_secs())
+    } else {
+        format!("{}m", time_since_last_seen.as_secs() / 60)
+    };
+
+    let style = if actual_i == selected_index {
+        Style::default()
+            .bg(theme.selected_row_background)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+
+    let mut state_display = format!("{}", host.state.short_string());
+    if host.has_local_ip(local_ips) {
+        state_display = format!("{}*", state_display);
+    }
+
+    // Add PTT indicator for primary transmitters (BMCA winners) in tree mode
+    if is_primary_transmitter.unwrap_or(false) {
+        state_display = format!("PTT");
+    }
+
+    let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
+        if host.has_multiple_ips() {
+            format!("{} (+{})", primary_ip, host.get_ip_count() - 1)
+        } else {
+            format!("{}", primary_ip)
+        }
+    } else {
+        "N/A".to_string()
+    };
+
+    let priority1_display = match &host.state {
+        PtpHostState::TimeTransmitter(s) => s.priority1.map_or("-".to_string(), |p| p.to_string()),
+        _ => "-".to_string(),
+    };
+
+    let clock_class_display = match &host.state {
+        PtpHostState::TimeTransmitter(s) => {
+            s.clock_class.map_or("-".to_string(), |c| c.to_string())
+        }
+        _ => "-".to_string(),
+    };
+
+    let selected_transmitter_cell = match &host.state {
+        PtpHostState::TimeReceiver(s) => {
+            s.selected_transmitter_identity
+                .as_ref()
+                .map(|id| {
+                    // Add confidence indicator based on relationship quality
+                    let (confidence_symbol, confidence_color) =
+                        match s.selected_transmitter_confidence {
+                            conf if conf >= 0.9 => (
+                                " ✓",
+                                theme.get_confidence_color(s.selected_transmitter_confidence),
+                            ), // High confidence
+                            conf if conf >= 0.7 => (
+                                " ~",
+                                theme.get_confidence_color(s.selected_transmitter_confidence),
+                            ), // Good confidence
+                            conf if conf >= 0.4 => (
+                                " ?",
+                                theme.get_confidence_color(s.selected_transmitter_confidence),
+                            ), // Medium confidence
+                            _ => ("", theme.text_primary), // Low/no confidence
+                        };
+
+                    let cell = Cell::from(Line::from(vec![
+                        Span::styled(id.to_string(), Style::default().fg(theme.text_primary)),
+                        Span::styled(confidence_symbol, Style::default().fg(confidence_color)),
+                    ]));
+                    cell
+                })
+                .unwrap_or_else(|| Cell::from("-"))
+        }
+        _ => Cell::from("-"),
+    };
+
+    Row::new(vec![
+        Cell::from(state_display).style(Style::default().fg(state_color)),
+        Cell::from(clock_identity_display),
+        Cell::from(ip_display),
+        Cell::from(
+            host.domain_number
+                .map_or("-".to_string(), |domain| domain.to_string()),
+        ),
+        Cell::from(priority1_display),
+        Cell::from(clock_class_display),
+        selected_transmitter_cell,
+        Cell::from(host.total_messages_sent_count.to_string()),
+        Cell::from(last_seen_str),
+    ])
+    .style(style)
+}
 
 // Helper function to create aligned label-value pairs
 fn create_aligned_field<'a>(
@@ -214,7 +351,56 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     let header = Row::new(header_cells).height(1);
 
     // Get hosts data based on tree view mode
-    let (total_count, rows) = {
+    let (total_count, rows) = if app.tree_view_mode {
+        // Tree view mode
+        let tree_nodes = app.get_hosts_tree();
+        let flattened_nodes = flatten_tree_nodes(&tree_nodes);
+        let total_count = flattened_nodes.len();
+
+        // Apply scrolling - only show visible rows
+        let visible_nodes: Vec<_> = flattened_nodes
+            .iter()
+            .skip(updated_scroll_offset)
+            .take(visible_height)
+            .collect();
+
+        let rows: Vec<Row> = visible_nodes
+            .iter()
+            .enumerate()
+            .map(|(visible_i, (node, _flat_index, is_last_child))| {
+                let actual_i = visible_i + updated_scroll_offset;
+                let host = &node.host;
+
+                // Create indentation for tree structure
+                let indent = "  ".repeat(node.depth);
+                let tree_prefix = if node.depth > 0 {
+                    if *is_last_child {
+                        "└─ "
+                    } else {
+                        "├─ "
+                    }
+                } else {
+                    ""
+                };
+
+                let clock_identity_display =
+                    format!("{}{}{}", indent, tree_prefix, host.clock_identity);
+
+                create_host_row(
+                    host,
+                    clock_identity_display,
+                    actual_i,
+                    selected_index,
+                    theme,
+                    &local_ips,
+                    Some(node.is_primary_transmitter),
+                )
+            })
+            .collect();
+
+        (total_count, rows)
+    } else {
+        // Table view mode (original)
         let hosts = app.get_hosts();
         let total_count = hosts.len();
 
@@ -230,113 +416,17 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
             .enumerate()
             .map(|(visible_i, host)| {
                 let actual_i = visible_i + updated_scroll_offset;
-                let state_color = theme.get_state_color(&host.state);
+                let clock_identity_display = host.clock_identity.to_string();
 
-                let time_since_last_seen = host.time_since_last_seen();
-                let last_seen_str = if time_since_last_seen.as_secs() < 60 {
-                    format!("{}s", time_since_last_seen.as_secs())
-                } else {
-                    format!("{}m", time_since_last_seen.as_secs() / 60)
-                };
-
-                let style = if actual_i == selected_index {
-                    Style::default()
-                        .bg(theme.selected_row_background)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-
-                let mut state_display = format!("{}", host.state.short_string());
-                if host.has_local_ip(&local_ips) {
-                    state_display = format!("{}*", state_display);
-                }
-
-                let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
-                    if host.has_multiple_ips() {
-                        format!("{} (+{})", primary_ip, host.get_ip_count() - 1)
-                    } else {
-                        format!("{}", primary_ip)
-                    }
-                } else {
-                    "N/A".to_string()
-                };
-
-                let priority1_display = match &host.state {
-                    PtpHostState::TimeTransmitter(s) => {
-                        s.priority1.map_or("-".to_string(), |p| p.to_string())
-                    }
-                    _ => "-".to_string(),
-                };
-
-                let clock_class_display = match &host.state {
-                    PtpHostState::TimeTransmitter(s) => {
-                        s.clock_class.map_or("-".to_string(), |c| c.to_string())
-                    }
-                    _ => "-".to_string(),
-                };
-
-                let selected_transmitter_cell = match &host.state {
-                    PtpHostState::TimeReceiver(s) => {
-                        s.selected_transmitter_identity
-                            .as_ref()
-                            .map(|id| {
-                                // Add confidence indicator based on relationship quality
-                                let (confidence_symbol, confidence_color) =
-                                    match s.selected_transmitter_confidence {
-                                        conf if conf >= 0.9 => (
-                                            " ✓",
-                                            theme.get_confidence_color(
-                                                s.selected_transmitter_confidence,
-                                            ),
-                                        ), // High confidence
-                                        conf if conf >= 0.7 => (
-                                            " ~",
-                                            theme.get_confidence_color(
-                                                s.selected_transmitter_confidence,
-                                            ),
-                                        ), // Good confidence
-                                        conf if conf >= 0.4 => (
-                                            " ?",
-                                            theme.get_confidence_color(
-                                                s.selected_transmitter_confidence,
-                                            ),
-                                        ), // Medium confidence
-                                        _ => ("", theme.text_primary), // Low/no confidence
-                                    };
-
-                                let cell = Cell::from(Line::from(vec![
-                                    Span::styled(
-                                        id.to_string(),
-                                        Style::default().fg(theme.text_primary),
-                                    ),
-                                    Span::styled(
-                                        confidence_symbol,
-                                        Style::default().fg(confidence_color),
-                                    ),
-                                ]));
-                                cell
-                            })
-                            .unwrap()
-                    }
-                    _ => Cell::from("-"),
-                };
-
-                Row::new(vec![
-                    Cell::from(state_display).style(Style::default().fg(state_color)),
-                    Cell::from(host.clock_identity.to_string()),
-                    Cell::from(ip_display),
-                    Cell::from(
-                        host.domain_number
-                            .map_or("-".to_string(), |domain| domain.to_string()),
-                    ),
-                    Cell::from(priority1_display),
-                    Cell::from(clock_class_display),
-                    selected_transmitter_cell,
-                    Cell::from(host.total_messages_sent_count.to_string()),
-                    Cell::from(last_seen_str),
-                ])
-                .style(style)
+                create_host_row(
+                    host,
+                    clock_identity_display,
+                    actual_i,
+                    selected_index,
+                    theme,
+                    &local_ips,
+                    None,
+                )
             })
             .collect();
 
@@ -361,11 +451,19 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         "↓"
     };
 
-    let title = format!(
-        "PTP Hosts - Sort: {}{} (s to cycle, S to reverse)",
-        sort_column.display_name(),
-        sort_direction
-    );
+    let title = if app.tree_view_mode {
+        format!(
+            "PTP Hosts - Tree View - Sort: {}{} (s to cycle, S to reverse)",
+            sort_column.display_name(),
+            sort_direction
+        )
+    } else {
+        format!(
+            "PTP Hosts - Sort: {}{} (s to cycle, S to reverse)",
+            sort_column.display_name(),
+            sort_direction
+        )
+    };
 
     let table = Table::new(rows, widths)
         .header(header)
@@ -447,12 +545,6 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
             STATS_LABEL_WIDTH,
             theme,
             theme.state_receiver,
-        ),
-        create_aligned_field(
-            "Other: ",
-            (total_hosts - transmitter_count - receiver_count).to_string(),
-            STATS_LABEL_WIDTH,
-            theme,
         ),
         create_aligned_field(
             "Last packet: ",

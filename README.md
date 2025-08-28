@@ -25,9 +25,10 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - ⚡ **Hardware-accelerated filtering** - Uses BPF filters for efficient packet capture
 - 🏷️ Host classification by PTP state
 - 🏆 **BMCA (Best Master Clock Algorithm)** - Automatic primary time transmitter detection
-- 📊 Primary Time Transmitter marked with "PT" indicator
+- 📊 Primary Time Transmitter marked with "PTT" indicator
 - 📈 Network statistics and quality metrics
 - 🕐 Timing relationship tracking
+- 🌳 **Tree view mode** - Hierarchical display showing transmitter-receiver relationships with proper indentation and PTT (Primary Time Transmitter) indicators
 - 🌳 Visual hierarchy mapping of transmitter-receiver relationships
 - 🏷️ **VLAN support** - Detects and displays VLAN tags in PTP packets
 

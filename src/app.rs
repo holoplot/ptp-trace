@@ -84,6 +84,14 @@ impl SortColumn {
     }
 }
 
+#[derive(Clone)]
+pub struct TreeNode {
+    pub host: PtpHost,
+    pub children: Vec<TreeNode>,
+    pub depth: usize,
+    pub is_primary_transmitter: bool,
+}
+
 pub struct App {
     pub state: AppState,
     pub update_interval: Duration,
@@ -103,6 +111,7 @@ pub struct App {
     pub sort_ascending: bool,
     pub selected_host_id: Option<ClockIdentity>,
     pub paused: bool,
+    pub tree_view_mode: bool,
 }
 
 impl App {
@@ -133,6 +142,7 @@ impl App {
             sort_ascending: true,
             selected_host_id: None,
             paused: false,
+            tree_view_mode: false,
         };
 
         // Set the max packet history on the tracker
@@ -275,6 +285,8 @@ impl App {
                 self.cycle_sort_column_previous();
             }
             KeyCode::Char('t') => {
+                // Toggle tree view mode
+                self.tree_view_mode = !self.tree_view_mode;
                 // Restore selection in the new view mode
                 self.restore_host_selection();
             }
@@ -305,16 +317,73 @@ impl App {
     /// Helper method to update the selected host ID and reset packet scroll offset
     fn update_selected_host(&mut self, index: usize) {
         self.packet_scroll_offset = 0;
-        if let Some(host) = self.get_hosts().get(index) {
-            self.selected_host_id = Some(host.clock_identity.clone());
+        self.selected_index = index;
+
+        // Get the host clock identity based on current view mode
+        let host_clock_identity = if self.tree_view_mode {
+            // In tree mode, get the clock identity from the tree structure
+            self.get_tree_host_clock_identity_at_index(index)
+        } else {
+            // In flat mode, use the flat host list
+            self.get_hosts().get(index).map(|host| host.clock_identity)
+        };
+
+        if let Some(clock_identity) = host_clock_identity {
+            self.selected_host_id = Some(clock_identity);
         } else {
             // If index is out of bounds, clear selection
             self.selected_host_id = None;
         }
     }
 
+    /// Get the clock identity of the host at the given index in tree view
+    fn get_tree_host_clock_identity_at_index(&self, index: usize) -> Option<ClockIdentity> {
+        let tree_nodes = self.get_hosts_tree();
+        let mut current_index = 0;
+
+        fn find_at_index(
+            nodes: &[TreeNode],
+            target_index: usize,
+            current_index: &mut usize,
+        ) -> Option<ClockIdentity> {
+            for node in nodes {
+                if *current_index == target_index {
+                    return Some(node.host.clock_identity);
+                }
+                *current_index += 1;
+
+                if let Some(result) = find_at_index(&node.children, target_index, current_index) {
+                    return Some(result);
+                }
+            }
+            None
+        }
+
+        find_at_index(&tree_nodes, index, &mut current_index)
+    }
+
+    /// Get the count of items in the current view (tree or flat)
+    fn get_tree_item_count(&self) -> usize {
+        let tree_nodes = self.get_hosts_tree();
+
+        fn count_nodes(nodes: &[TreeNode]) -> usize {
+            let mut count = 0;
+            for node in nodes {
+                count += 1;
+                count += count_nodes(&node.children);
+            }
+            count
+        }
+
+        count_nodes(&tree_nodes)
+    }
+
     fn move_selection_up(&mut self) {
-        let total_hosts = self.ptp_tracker.get_hosts().len();
+        let total_hosts = if self.tree_view_mode {
+            self.get_tree_item_count()
+        } else {
+            self.ptp_tracker.get_hosts().len()
+        };
 
         if total_hosts > 0 && self.selected_index > 0 {
             self.selected_index -= 1;
@@ -327,7 +396,11 @@ impl App {
     }
 
     fn move_selection_down(&mut self) {
-        let total_hosts = self.ptp_tracker.get_hosts().len();
+        let total_hosts = if self.tree_view_mode {
+            self.get_tree_item_count()
+        } else {
+            self.ptp_tracker.get_hosts().len()
+        };
 
         if total_hosts > 0 && self.selected_index < total_hosts - 1 {
             self.selected_index += 1;
@@ -341,15 +414,17 @@ impl App {
                 } else {
                     0
                 };
-                self.host_scroll_offset = (self.selected_index + 1)
-                    .saturating_sub(self.visible_height)
-                    .min(max_scroll_offset);
+                self.host_scroll_offset = max_scroll_offset;
             }
         }
     }
 
     pub fn ensure_host_visible(&mut self, visible_height: usize) {
-        let total_hosts = self.ptp_tracker.get_hosts().len();
+        let total_hosts = if self.tree_view_mode {
+            self.get_tree_item_count()
+        } else {
+            self.ptp_tracker.get_hosts().len()
+        };
 
         if total_hosts == 0 || visible_height == 0 {
             return;
@@ -412,7 +487,11 @@ impl App {
     }
 
     pub fn move_selection_page_down(&mut self, visible_height: usize) {
-        let total_hosts = self.ptp_tracker.get_hosts().len();
+        let total_hosts = if self.tree_view_mode {
+            self.get_tree_item_count()
+        } else {
+            self.ptp_tracker.get_hosts().len()
+        };
 
         if total_hosts == 0 || visible_height == 0 {
             return;
@@ -426,17 +505,17 @@ impl App {
             self.update_selected_host(self.selected_index);
         }
 
-        // Adjust scroll to keep selection in view
-        let last_visible_index = self.host_scroll_offset + visible_height - 1;
+        let max_scroll_offset = if total_hosts > visible_height {
+            total_hosts - visible_height
+        } else {
+            0
+        };
+
+        // Adjust scroll position if necessary
+        let last_visible_index = self.host_scroll_offset + visible_height.saturating_sub(1);
         if self.selected_index > last_visible_index {
-            let max_scroll_offset = if total_hosts > visible_height {
-                total_hosts - visible_height
-            } else {
-                0
-            };
-            self.host_scroll_offset = self
-                .selected_index
-                .saturating_sub(visible_height - 1)
+            self.host_scroll_offset = (self.selected_index + 1)
+                .saturating_sub(visible_height)
                 .min(max_scroll_offset);
         }
     }
@@ -448,7 +527,11 @@ impl App {
     }
 
     pub fn move_selection_to_bottom(&mut self, visible_height: usize) {
-        let total_hosts = self.ptp_tracker.get_hosts().len();
+        let total_hosts = if self.tree_view_mode {
+            self.get_tree_item_count()
+        } else {
+            self.ptp_tracker.get_hosts().len()
+        };
 
         if total_hosts > 0 {
             self.selected_index = total_hosts - 1;
@@ -549,6 +632,211 @@ impl App {
         hosts
     }
 
+    pub fn get_hosts_tree(&self) -> Vec<TreeNode> {
+        let hosts = self.ptp_tracker.get_hosts();
+        let mut tree_nodes = Vec::new();
+        let mut processed = std::collections::HashSet::new();
+
+        // Build a map of transmitter -> receivers for quick lookup using indices
+        let mut transmitter_to_receiver_indices: std::collections::HashMap<
+            ClockIdentity,
+            Vec<usize>,
+        > = std::collections::HashMap::new();
+
+        for (i, host) in hosts.iter().enumerate() {
+            if let PtpHostState::TimeReceiver(receiver_state) = &host.state {
+                if let Some(transmitter_id) = receiver_state.selected_transmitter_identity {
+                    transmitter_to_receiver_indices
+                        .entry(transmitter_id)
+                        .or_insert_with(Vec::new)
+                        .push(i);
+                }
+            }
+        }
+
+        // Find root transmitters using indices to avoid cloning
+        let mut root_transmitter_indices: Vec<_> = hosts
+            .iter()
+            .enumerate()
+            .filter(|(_, host)| matches!(host.state, PtpHostState::TimeTransmitter(_)))
+            .map(|(i, _)| i)
+            .collect();
+
+        // Sort root transmitters by the current sort column
+        root_transmitter_indices.sort_by(|&a, &b| {
+            let host_a = hosts[a];
+            let host_b = hosts[b];
+            self.compare_hosts_by_sort_column(host_a, host_b)
+        });
+
+        // Build tree recursively
+        for &transmitter_idx in &root_transmitter_indices {
+            let transmitter = hosts[transmitter_idx];
+            if !processed.contains(&transmitter.clock_identity) {
+                let node = self.build_tree_node(
+                    &hosts,
+                    transmitter_idx,
+                    &transmitter_to_receiver_indices,
+                    &mut processed,
+                    0,
+                );
+                tree_nodes.push(node);
+            }
+        }
+
+        // Add any remaining hosts that weren't part of the tree (orphaned hosts)
+        let mut orphaned_indices: Vec<_> = hosts
+            .iter()
+            .enumerate()
+            .filter(|(_, host)| !processed.contains(&host.clock_identity))
+            .map(|(i, _)| i)
+            .collect();
+
+        // Sort orphaned hosts by current sort column
+        orphaned_indices.sort_by(|&a, &b| {
+            let host_a = hosts[a];
+            let host_b = hosts[b];
+            self.compare_hosts_by_sort_column(host_a, host_b)
+        });
+
+        for &host_idx in &orphaned_indices {
+            let host = hosts[host_idx];
+            tree_nodes.push(TreeNode {
+                host: (*host).clone(),
+                children: Vec::new(),
+                depth: 0,
+                is_primary_transmitter: matches!(host.state, PtpHostState::TimeTransmitter(_)),
+            });
+        }
+
+        tree_nodes
+    }
+
+    /// Compare two hosts by the current sort column and direction
+    fn compare_hosts_by_sort_column(&self, a: &PtpHost, b: &PtpHost) -> std::cmp::Ordering {
+        let comparison = match self.sort_column {
+            SortColumn::ClockIdentity => a.clock_identity.cmp(&b.clock_identity),
+            SortColumn::IpAddress => {
+                let a_ip = a.get_primary_ip();
+                let b_ip = b.get_primary_ip();
+                a_ip.cmp(&b_ip)
+            }
+            SortColumn::State => {
+                let a_state_order = match &a.state {
+                    PtpHostState::TimeTransmitter(_) => 0,
+                    PtpHostState::TimeReceiver(_) => 1,
+                    PtpHostState::Listening => 2,
+                };
+                let b_state_order = match &b.state {
+                    PtpHostState::TimeTransmitter(_) => 0,
+                    PtpHostState::TimeReceiver(_) => 1,
+                    PtpHostState::Listening => 2,
+                };
+                a_state_order.cmp(&b_state_order)
+            }
+            SortColumn::Domain => a.domain_number.cmp(&b.domain_number),
+            SortColumn::Priority => {
+                let a_priority = match &a.state {
+                    PtpHostState::TimeTransmitter(s) => s.priority1.unwrap_or(255),
+                    _ => 255,
+                };
+                let b_priority = match &b.state {
+                    PtpHostState::TimeTransmitter(s) => s.priority1.unwrap_or(255),
+                    _ => 255,
+                };
+                a_priority.cmp(&b_priority)
+            }
+            SortColumn::ClockClass => {
+                let a_clock_class = match &a.state {
+                    PtpHostState::TimeTransmitter(s) => s.clock_class.map_or(255, |c| c.class()),
+                    _ => 255,
+                };
+                let b_clock_class = match &b.state {
+                    PtpHostState::TimeTransmitter(s) => s.clock_class.map_or(255, |c| c.class()),
+                    _ => 255,
+                };
+                a_clock_class.cmp(&b_clock_class)
+            }
+            SortColumn::SelectedTransmitter => {
+                let a_sel = match &a.state {
+                    PtpHostState::TimeReceiver(s) => {
+                        s.selected_transmitter_identity.unwrap_or_default()
+                    }
+                    _ => ClockIdentity::default(),
+                };
+
+                let b_sel = match &b.state {
+                    PtpHostState::TimeReceiver(s) => {
+                        s.selected_transmitter_identity.unwrap_or_default()
+                    }
+                    _ => ClockIdentity::default(),
+                };
+
+                a_sel.cmp(&b_sel)
+            }
+            SortColumn::MessageCount => a
+                .total_messages_sent_count
+                .cmp(&b.total_messages_sent_count),
+            SortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
+        };
+
+        if self.sort_ascending {
+            comparison
+        } else {
+            comparison.reverse()
+        }
+    }
+
+    fn build_tree_node(
+        &self,
+        hosts: &[&PtpHost],
+        host_idx: usize,
+        transmitter_to_receiver_indices: &std::collections::HashMap<ClockIdentity, Vec<usize>>,
+        processed: &mut std::collections::HashSet<ClockIdentity>,
+        depth: usize,
+    ) -> TreeNode {
+        let host = hosts[host_idx];
+        processed.insert(host.clock_identity);
+
+        let is_primary_transmitter = match &host.state {
+            PtpHostState::TimeTransmitter(transmitter_state) => {
+                // Use existing BMCA winner detection
+                transmitter_state.is_bmca_winner
+            }
+            _ => false,
+        };
+
+        let mut children = Vec::new();
+
+        // Find receivers for this transmitter and sort them
+        if let Some(receiver_indices) = transmitter_to_receiver_indices.get(&host.clock_identity) {
+            let mut sorted_receiver_indices = receiver_indices.clone();
+            sorted_receiver_indices
+                .sort_by(|&a, &b| self.compare_hosts_by_sort_column(hosts[a], hosts[b]));
+
+            for &receiver_idx in &sorted_receiver_indices {
+                let receiver = hosts[receiver_idx];
+                if !processed.contains(&receiver.clock_identity) {
+                    let child_node = self.build_tree_node(
+                        hosts,
+                        receiver_idx,
+                        transmitter_to_receiver_indices,
+                        processed,
+                        depth + 1,
+                    );
+                    children.push(child_node);
+                }
+            }
+        }
+
+        TreeNode {
+            host: (*host).clone(),
+            children,
+            depth,
+            is_primary_transmitter,
+        }
+    }
+
     pub fn get_selected_index(&self) -> usize {
         self.selected_index
     }
@@ -583,6 +871,7 @@ impl App {
                 return history;
             }
         }
+
         Vec::new()
     }
 
@@ -591,13 +880,44 @@ impl App {
     }
 
     fn find_host_index(&self, clock_identity: ClockIdentity) -> Option<usize> {
-        self.get_hosts()
-            .iter()
-            .position(|host| host.clock_identity == clock_identity)
+        if self.tree_view_mode {
+            // In tree mode, search through tree structure
+            let tree_nodes = self.get_hosts_tree();
+            let mut current_index = 0;
+
+            fn find_in_tree(
+                nodes: &[TreeNode],
+                target_id: ClockIdentity,
+                current_index: &mut usize,
+            ) -> Option<usize> {
+                for node in nodes {
+                    if node.host.clock_identity == target_id {
+                        return Some(*current_index);
+                    }
+                    *current_index += 1;
+
+                    if let Some(result) = find_in_tree(&node.children, target_id, current_index) {
+                        return Some(result);
+                    }
+                }
+                None
+            }
+
+            find_in_tree(&tree_nodes, clock_identity, &mut current_index)
+        } else {
+            // In flat mode, search through flat host list
+            self.get_hosts()
+                .iter()
+                .position(|host| host.clock_identity == clock_identity)
+        }
     }
 
     fn get_host_count(&self) -> usize {
-        self.ptp_tracker.get_hosts().len()
+        if self.tree_view_mode {
+            self.get_tree_item_count()
+        } else {
+            self.ptp_tracker.get_hosts().len()
+        }
     }
 
     /// Helper method to clamp index within valid bounds and update selection
