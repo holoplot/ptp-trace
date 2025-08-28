@@ -413,8 +413,6 @@ pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
             .join(", ")
     );
 
-    println!("Note: Virtual interfaces excluded by default. Use --interface to override.");
-
     Ok(RawSocketReceiver {
         receiver,
         _handles: handles,
