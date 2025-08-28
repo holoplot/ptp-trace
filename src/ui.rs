@@ -1281,18 +1281,31 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
         let overlay = Block::default().style(Style::default().bg(Color::Rgb(20, 20, 20)));
         f.render_widget(overlay, area);
 
-        // Create modal content layout
+        // Create modal content layout - split vertically (left/right)
+        // Ensure hexdump gets at least 80 characters width + margin for borders
+        let hexdump_min_width = 82;
+        let available_width = modal_area.width as usize;
+        let (details_constraint, hexdump_constraint) = if available_width > hexdump_min_width {
+            (
+                Constraint::Min((available_width - hexdump_min_width) as u16),
+                Constraint::Length(hexdump_min_width as u16),
+            )
+        } else {
+            // Fallback if modal is too narrow
+            (Constraint::Percentage(60), Constraint::Percentage(40))
+        };
+
         let modal_chunks = Layout::default()
-            .direction(Direction::Vertical)
+            .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(60), // Packet details
-                Constraint::Percentage(40), // Hexdump
+                details_constraint, // Packet details (left)
+                hexdump_constraint, // Hexdump (right)
             ])
             .split(modal_area);
 
         // Modal title
         let title = format!(
-            "Packet Details - Sequence ID: {} (Press ESC to close)",
+            "Packet Details - Seq {} (ESC to close)",
             packet.ptp_message.header().sequence_id
         );
 
@@ -1309,10 +1322,10 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
         f.render_widget(Clear, modal_area);
         f.render_widget(modal_block.clone(), modal_area);
 
-        // Render packet details
+        // Render packet details (left side)
         render_packet_details(f, modal_chunks[0], &packet, &theme, app);
 
-        // Render hexdump
+        // Render hexdump (right side)
         render_packet_hexdump(f, modal_chunks[1], &packet, &theme);
     }
 }
@@ -1333,6 +1346,13 @@ fn render_packet_details(
     // Build all content lines (no truncation)
     let mut all_lines = vec![
         create_aligned_field("Timestamp:", time_str, LABEL_WIDTH, theme),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Network:",
+            Style::default()
+                .fg(theme.table_header)
+                .add_modifier(Modifier::BOLD),
+        )]),
         create_aligned_field(
             "Source Address:",
             packet.source_addr.to_string(),
@@ -1340,8 +1360,36 @@ fn render_packet_details(
             theme,
         ),
         create_aligned_field(
+            "Source MAC:",
+            format!(
+                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                packet.source_mac[0],
+                packet.source_mac[1],
+                packet.source_mac[2],
+                packet.source_mac[3],
+                packet.source_mac[4],
+                packet.source_mac[5]
+            ),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
             "Dest Address:",
             packet.dest_addr.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "Dest MAC:",
+            format!(
+                "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                packet.dest_mac[0],
+                packet.dest_mac[1],
+                packet.dest_mac[2],
+                packet.dest_mac[3],
+                packet.dest_mac[4],
+                packet.dest_mac[5]
+            ),
             LABEL_WIDTH,
             theme,
         ),
@@ -1388,6 +1436,7 @@ fn render_packet_details(
             LABEL_WIDTH,
             theme,
         ),
+        create_aligned_field("Flags:", header.flags.short(), LABEL_WIDTH, theme),
         create_aligned_field(
             "Correction Field:",
             header.correction_field.value.to_string(),
@@ -1427,7 +1476,7 @@ fn render_packet_details(
     all_lines.extend(vec![
         Line::from(""),
         Line::from(vec![Span::styled(
-            "Flag Details:",
+            "Header Flag Details:",
             Style::default()
                 .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),

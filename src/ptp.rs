@@ -654,7 +654,9 @@ impl PtpTracker {
             timestamp: std::time::Instant::now(),
             vlan_id: raw_packet.vlan_id,
             source_addr: raw_packet.source_addr,
+            source_mac: raw_packet.source_mac,
             dest_addr: raw_packet.dest_addr,
+            dest_mac: raw_packet.dest_mac,
             interface: raw_packet.interface_name.clone(),
             _raw_packet_data: raw_packet.data.clone(),
         });

@@ -19,7 +19,9 @@ const PTP_MULTICAST_ADDR: &str = "224.0.1.129";
 pub struct RawPacket {
     pub data: Vec<u8>,
     pub source_addr: std::net::SocketAddr,
+    pub source_mac: [u8; 6],
     pub dest_addr: std::net::SocketAddr,
+    pub dest_mac: [u8; 6],
     pub vlan_id: Option<u16>,
     pub interface_name: String,
     pub ptp_payload: Vec<u8>,
@@ -160,6 +162,24 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
         return None;
     }
 
+    let dest_mac = [
+        packet_data[0],
+        packet_data[1],
+        packet_data[2],
+        packet_data[3],
+        packet_data[4],
+        packet_data[5],
+    ];
+
+    let source_mac = [
+        packet_data[6],
+        packet_data[7],
+        packet_data[8],
+        packet_data[9],
+        packet_data[10],
+        packet_data[11],
+    ];
+
     // Parse Ethernet header
     let ethertype = u16::from_be_bytes([packet_data[12], packet_data[13]]);
     let mut ip_offset = 14;
@@ -234,7 +254,9 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
     Some(RawPacket {
         data: packet_data.to_vec(),
         source_addr,
+        source_mac,
         dest_addr,
+        dest_mac,
         vlan_id,
         interface_name: interface_name.to_string(),
         ptp_payload,

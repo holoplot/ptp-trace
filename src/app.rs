@@ -126,6 +126,7 @@ pub struct App {
     pub modal_packet: Option<ProcessedPacket>,
     pub modal_scroll_offset: usize,
     pub modal_visible_height: usize,
+    pub needs_screen_refresh: bool,
 }
 
 impl App {
@@ -165,6 +166,7 @@ impl App {
             modal_packet: None,
             modal_scroll_offset: 0,
             modal_visible_height: 10,
+            needs_screen_refresh: false,
         };
 
         // Set the max packet history on the tracker
@@ -197,6 +199,12 @@ impl App {
         let mut last_tick = Instant::now();
 
         loop {
+            // Handle screen refresh if requested
+            if self.needs_screen_refresh {
+                terminal.clear()?;
+                self.needs_screen_refresh = false;
+            }
+
             // Draw the UI
             terminal.draw(|f| ui(f, self))?;
 
@@ -282,8 +290,9 @@ impl App {
             }
             KeyCode::Char('\x0C') => {
                 // Ctrl+L - refresh/redraw screen (standard terminal convention)
-                // Force a complete redraw by updating data and clearing screen state
+                // Force a complete redraw by updating data and clearing terminal
                 self.update_data().await?;
+                self.needs_screen_refresh = true;
             }
             KeyCode::Char('c') => {
                 self.ptp_tracker.clear_hosts();
