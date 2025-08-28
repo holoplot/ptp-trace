@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, SortColumn, TreeNode},
+    app::{ActiveView, App, SortColumn, TreeNode},
     ptp::{PtpHost, PtpHostState},
     types::{format_timestamp, PtpClockAccuracy, PtpClockClass},
     version,
@@ -315,7 +315,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     app.ensure_host_visible(visible_height);
 
     let theme = &app.theme;
-    let is_focused = true; // Hosts are always focused now
+    let _is_focused = true; // Hosts are always focused now
     let selected_index = app.get_selected_index();
     let updated_scroll_offset = app.get_host_scroll_offset();
 
@@ -451,17 +451,24 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         "↓"
     };
 
+    let view_indicator = match app.active_view {
+        ActiveView::HostTable => " [ACTIVE - TAB to switch]",
+        ActiveView::PacketHistory => " [TAB to switch]",
+    };
+
     let title = if app.tree_view_mode {
         format!(
-            "PTP Hosts - Tree View - Sort: {}{} (s to cycle, S to reverse)",
+            "PTP Hosts - Tree View - Sort: {}{} (s to cycle, S to reverse){}",
             sort_column.display_name(),
-            sort_direction
+            sort_direction,
+            view_indicator
         )
     } else {
         format!(
-            "PTP Hosts - Sort: {}{} (s to cycle, S to reverse)",
+            "PTP Hosts - Sort: {}{} (s to cycle, S to reverse){}",
             sort_column.display_name(),
-            sort_direction
+            sort_direction,
+            view_indicator
         )
     };
 
@@ -472,10 +479,9 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                 .borders(Borders::ALL)
                 .title(title.as_str())
                 .border_type(BorderType::Rounded)
-                .border_style(if is_focused {
-                    Style::default().fg(theme.border_focused)
-                } else {
-                    Style::default().fg(theme.border_normal)
+                .border_style(match app.active_view {
+                    ActiveView::HostTable => Style::default().fg(theme.border_focused),
+                    ActiveView::PacketHistory => Style::default().fg(theme.border_normal),
                 }),
         )
         .style(Style::default().bg(theme.background))
@@ -608,9 +614,6 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                     theme,
                 ));
             }
-
-            // Conditionally add version field only if it has a value
-            if host.last_version.is_some() {}
 
             details_text.extend(vec![
                 create_aligned_field_with_vendor(
@@ -869,8 +872,9 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
                 .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),
         )]),
-        Line::from("  ↑/k        - Move selection up"),
-        Line::from("  ↓/j        - Move selection down"),
+        Line::from("  Tab        - Switch between host table and packet history"),
+        Line::from("  ↑/k        - Move selection up (in active view)"),
+        Line::from("  ↓/j        - Move selection down (in active view)"),
         Line::from("  PgUp/PgDn  - Page up/down (10 items)"),
         Line::from("  Home/End   - Jump to top/bottom"),
         Line::from(""),
@@ -1016,56 +1020,78 @@ fn render_scrollbar(
 }
 
 fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
-    let theme = &app.theme;
     let packets = app.get_packet_history();
-    let _scroll_offset = app.get_packet_scroll_offset();
     let total_packets = packets.len();
 
-    // Calculate how many packets we can display (non-interactive view)
-    let content_height = area.height.saturating_sub(2) as usize; // Subtract borders
+    // Calculate how many packets we can display
+    let content_height = area.height.saturating_sub(3) as usize; // Subtract borders + header
     let visible_packets = if app.is_packet_history_expanded() {
-        content_height.saturating_sub(1) // Leave room for header
+        content_height
     } else {
-        content_height.min(8).saturating_sub(1) // Limit to 8 rows when not expanded
+        content_height.min(8) // Limit to 8 rows when not expanded
     };
 
-    // Create title with packet count, selected host info, and expansion status
+    // Update app with actual visible height
+    app.set_visible_packet_height(visible_packets);
+
+    // Auto-scroll to bottom if in host table view and auto-scroll is enabled
+    if matches!(app.active_view, ActiveView::HostTable) && app.auto_scroll_packets {
+        if total_packets > 0 {
+            app.selected_packet_index = total_packets - 1;
+            let max_scroll = total_packets.saturating_sub(visible_packets);
+            app.packet_scroll_offset = max_scroll;
+        }
+    } else if matches!(app.active_view, ActiveView::PacketHistory) {
+        // Ensure selected packet is visible when in packet history view
+        app.ensure_packet_visible();
+    }
+
+    // Get theme reference after mutable operations
+    let theme = &app.theme;
+
+    // Create title with view indicator
     let selected_host_info = if let Some(ref host_id) = app.selected_host_id {
         host_id.to_string()
     } else {
         "[No host selected]".to_string()
     };
 
+    let view_indicator = match app.active_view {
+        ActiveView::PacketHistory => " [ACTIVE - TAB to switch]",
+        ActiveView::HostTable => " [TAB to switch]",
+    };
+
+    let expanded_status = if app.is_packet_history_expanded() {
+        " [EXPANDED]"
+    } else {
+        ""
+    };
+
     let title = if total_packets > 0 {
         let display_count = visible_packets.min(total_packets);
-        let expanded_status = if app.is_packet_history_expanded() {
-            " [EXPANDED]"
-        } else {
-            ""
-        };
         format!(
-            "Packet History {} ({}/{}) - 'e' to toggle expand{}",
-            selected_host_info, display_count, total_packets, expanded_status
+            "Packet History {} ({}/{}) - 'e' to toggle expand{}{}",
+            selected_host_info, display_count, total_packets, expanded_status, view_indicator
         )
     } else {
-        let expanded_status = if app.is_packet_history_expanded() {
-            " [EXPANDED]"
-        } else {
-            ""
-        };
         format!(
-            "Packet History{} (No packets yet) - 'e' to toggle expand{}",
-            selected_host_info, expanded_status
+            "Packet History{} (No packets yet) - 'e' to toggle expand{}{}",
+            selected_host_info, expanded_status, view_indicator
         )
+    };
+
+    let border_style = match app.active_view {
+        ActiveView::PacketHistory => Style::default().fg(theme.border_focused),
+        ActiveView::HostTable => Style::default().fg(theme.border_normal),
     };
 
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme.border_normal))
+        .border_style(border_style)
         .style(Style::default().bg(theme.background));
 
-    if packets.is_empty() {
+    if total_packets == 0 {
         let message = if app.selected_host_id.is_none() {
             "Select a host to view its packet history."
         } else {
@@ -1103,12 +1129,24 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
             .add_modifier(Modifier::BOLD),
     );
 
-    // Create table rows from packet history (newest first)
-    let rows: Vec<Row> = packets
+    // Get visible packets (oldest first now, newest at bottom)
+    let scroll_offset = app
+        .packet_scroll_offset
+        .min(total_packets.saturating_sub(visible_packets));
+    let end = (scroll_offset + visible_packets).min(total_packets);
+    let visible_packets_slice = if total_packets > 0 {
+        &packets[scroll_offset..end]
+    } else {
+        &[]
+    };
+
+    let selected_in_view = app.selected_packet_index.saturating_sub(scroll_offset);
+
+    // Create table rows from visible packets
+    let rows: Vec<Row> = visible_packets_slice
         .iter()
-        .rev() // Show newest packets first
-        .take(visible_packets)
-        .map(|packet| {
+        .enumerate()
+        .map(|(i, packet)| {
             let elapsed = packet.timestamp.elapsed();
             let time_str = if elapsed.as_secs() < 1 {
                 format!("{}ms", elapsed.as_millis())
@@ -1125,6 +1163,15 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
             };
 
             let header = packet.ptp_message.header();
+
+            let row_style =
+                if matches!(app.active_view, ActiveView::PacketHistory) && i == selected_in_view {
+                    Style::default()
+                        .bg(theme.selected_row_background)
+                        .fg(theme.text_primary)
+                } else {
+                    Style::default()
+                };
 
             Row::new(vec![
                 Cell::from(time_str),
@@ -1148,6 +1195,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(header.log_message_interval.to_string()),
                 Cell::from(packet.ptp_message.to_string()),
             ])
+            .style(row_style)
         })
         .collect();
 
@@ -1174,4 +1222,16 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         .style(Style::default().bg(theme.background));
 
     f.render_widget(table, area);
+
+    // Render scrollbar if needed
+    if total_packets > visible_packets {
+        render_scrollbar(
+            f,
+            area,
+            total_packets,
+            scroll_offset,
+            visible_packets,
+            theme,
+        );
+    }
 }

@@ -28,6 +28,12 @@ pub enum AppState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ActiveView {
+    HostTable,
+    PacketHistory,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum SortColumn {
     ClockIdentity,
     IpAddress,
@@ -112,6 +118,10 @@ pub struct App {
     pub selected_host_id: Option<ClockIdentity>,
     pub paused: bool,
     pub tree_view_mode: bool,
+    pub active_view: ActiveView,
+    pub selected_packet_index: usize,
+    pub auto_scroll_packets: bool,
+    pub visible_packet_height: usize,
 }
 
 impl App {
@@ -143,6 +153,10 @@ impl App {
             selected_host_id: None,
             paused: false,
             tree_view_mode: false,
+            active_view: ActiveView::HostTable,
+            selected_packet_index: 0,
+            auto_scroll_packets: true,
+            visible_packet_height: 8,
         };
 
         // Set the max packet history on the tracker
@@ -218,6 +232,25 @@ impl App {
 
     async fn handle_key_event(&mut self, key_code: KeyCode) -> Result<()> {
         match key_code {
+            KeyCode::Tab => {
+                self.active_view = match self.active_view {
+                    ActiveView::HostTable => ActiveView::PacketHistory,
+                    ActiveView::PacketHistory => ActiveView::HostTable,
+                };
+                // Select most recent packet when switching to packet history
+                if matches!(self.active_view, ActiveView::PacketHistory) {
+                    let packet_count = self.get_packet_history().len();
+                    if packet_count > 0 {
+                        self.selected_packet_index = packet_count - 1;
+                    } else {
+                        self.selected_packet_index = 0;
+                    }
+                    self.auto_scroll_packets = false;
+                    self.ensure_packet_visible();
+                } else {
+                    self.auto_scroll_packets = true;
+                }
+            }
             KeyCode::Char('q') => {
                 self.state = AppState::Quitting;
             }
@@ -245,24 +278,30 @@ impl App {
                 self.selected_index = 0;
                 self.selected_host_id = None;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.move_selection_up();
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.move_selection_down();
-            }
-            KeyCode::PageUp => {
-                self.move_selection_page_up();
-            }
-            KeyCode::PageDown => {
-                self.move_selection_page_down(self.visible_height);
-            }
-            KeyCode::Home => {
-                self.move_selection_to_top();
-            }
-            KeyCode::End => {
-                self.move_selection_to_bottom(self.visible_height);
-            }
+            KeyCode::Up | KeyCode::Char('k') => match self.active_view {
+                ActiveView::HostTable => self.move_selection_up(),
+                ActiveView::PacketHistory => self.move_packet_selection_up(),
+            },
+            KeyCode::Down | KeyCode::Char('j') => match self.active_view {
+                ActiveView::HostTable => self.move_selection_down(),
+                ActiveView::PacketHistory => self.move_packet_selection_down(),
+            },
+            KeyCode::PageUp => match self.active_view {
+                ActiveView::HostTable => self.move_selection_page_up(),
+                ActiveView::PacketHistory => self.move_packet_selection_page_up(),
+            },
+            KeyCode::PageDown => match self.active_view {
+                ActiveView::HostTable => self.move_selection_page_down(self.visible_height),
+                ActiveView::PacketHistory => self.move_packet_selection_page_down(),
+            },
+            KeyCode::Home => match self.active_view {
+                ActiveView::HostTable => self.move_selection_to_top(),
+                ActiveView::PacketHistory => self.move_packet_selection_to_top(),
+            },
+            KeyCode::End => match self.active_view {
+                ActiveView::HostTable => self.move_selection_to_bottom(self.visible_height),
+                ActiveView::PacketHistory => self.move_packet_selection_to_bottom(),
+            },
             KeyCode::Char('d') => {
                 self.debug = !self.debug;
             }
@@ -875,10 +914,6 @@ impl App {
         Vec::new()
     }
 
-    pub fn get_packet_scroll_offset(&self) -> usize {
-        self.packet_scroll_offset
-    }
-
     fn find_host_index(&self, clock_identity: ClockIdentity) -> Option<usize> {
         if self.tree_view_mode {
             // In tree mode, search through tree structure
@@ -961,11 +996,100 @@ impl App {
     }
 
     pub fn toggle_auto_scroll(&mut self) {
-        // This method is kept for compatibility but does nothing
-        // since packets are now non-interactive
+        self.auto_scroll_packets = !self.auto_scroll_packets;
     }
 
     pub fn is_packet_history_expanded(&self) -> bool {
         self.packet_history_expanded
+    }
+
+    fn move_packet_selection_up(&mut self) {
+        if self.selected_packet_index > 0 {
+            self.selected_packet_index -= 1;
+            self.auto_scroll_packets = false;
+            self.ensure_packet_visible();
+        }
+    }
+
+    fn move_packet_selection_down(&mut self) {
+        let packet_count = self.get_packet_history().len();
+        if packet_count > 0 && self.selected_packet_index < packet_count - 1 {
+            self.selected_packet_index += 1;
+            self.auto_scroll_packets = false;
+            self.ensure_packet_visible();
+        }
+    }
+
+    fn move_packet_selection_page_up(&mut self) {
+        let visible_height = self.visible_packet_height;
+        self.selected_packet_index = self.selected_packet_index.saturating_sub(visible_height);
+        self.auto_scroll_packets = false;
+        self.ensure_packet_visible();
+    }
+
+    fn move_packet_selection_page_down(&mut self) {
+        let packet_count = self.get_packet_history().len();
+        let visible_height = self.visible_packet_height;
+        if packet_count > 0 {
+            self.selected_packet_index =
+                (self.selected_packet_index + visible_height).min(packet_count - 1);
+            self.auto_scroll_packets = false;
+            self.ensure_packet_visible();
+        }
+    }
+
+    fn move_packet_selection_to_top(&mut self) {
+        self.selected_packet_index = 0;
+        self.packet_scroll_offset = 0;
+        self.auto_scroll_packets = false;
+    }
+
+    fn move_packet_selection_to_bottom(&mut self) {
+        let packet_count = self.get_packet_history().len();
+        if packet_count > 0 {
+            self.selected_packet_index = packet_count - 1;
+            self.auto_scroll_packets = false;
+            self.ensure_packet_visible();
+        }
+    }
+
+    pub fn ensure_packet_visible(&mut self) {
+        let visible_height = if self.visible_packet_height == 0 {
+            // Defensive fallback if height hasn't been set yet
+            if self.packet_history_expanded {
+                20
+            } else {
+                8
+            }
+        } else {
+            self.visible_packet_height
+        };
+        let packet_count = self.get_packet_history().len();
+
+        if packet_count == 0 {
+            return;
+        }
+
+        // Ensure selected packet is within bounds
+        self.selected_packet_index = self
+            .selected_packet_index
+            .min(packet_count.saturating_sub(1));
+
+        // Adjust scroll offset to make selected packet visible
+        if self.selected_packet_index < self.packet_scroll_offset {
+            self.packet_scroll_offset = self.selected_packet_index;
+        } else if self.selected_packet_index >= self.packet_scroll_offset + visible_height {
+            self.packet_scroll_offset = self
+                .selected_packet_index
+                .saturating_sub(visible_height - 1);
+        }
+
+        // Ensure scroll offset doesn't go beyond available packets
+        let max_scroll = packet_count.saturating_sub(visible_height);
+        self.packet_scroll_offset = self.packet_scroll_offset.min(max_scroll);
+    }
+
+    pub fn set_visible_packet_height(&mut self, height: usize) {
+        self.visible_packet_height = height;
     }
 }
