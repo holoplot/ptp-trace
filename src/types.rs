@@ -450,18 +450,18 @@ impl Display for PortIdentity {
 #[derive(Debug, Clone, Copy)]
 pub struct PtpHeaderFlags {
     v: [u8; 2],
-    _alternate_tt_flag: bool,
-    _two_step_flag: bool,
-    _unicast_flag: bool,
-    _ptp_profile_specific_1: bool,
-    _ptp_profile_specific_2: bool,
-    _ptp_security_flag: bool,
-    _leap61: bool,
-    _leap59: bool,
-    _current_utc_offset_valid: bool,
-    _ptp_timescale: bool,
-    _time_traceable: bool,
-    _frequency_traceable: bool,
+    alternate_tt_flag: bool,
+    two_step_flag: bool,
+    unicast_flag: bool,
+    ptp_profile_specific_1: bool,
+    ptp_profile_specific_2: bool,
+    ptp_security_flag: bool,
+    leap61: bool,
+    leap59: bool,
+    current_utc_offset_valid: bool,
+    ptp_timescale: bool,
+    time_traceable: bool,
+    frequency_traceable: bool,
 }
 
 impl PtpHeaderFlags {
@@ -476,19 +476,42 @@ impl TryFrom<&[u8]> for PtpHeaderFlags {
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         Ok(Self {
             v: v.try_into()?,
-            _alternate_tt_flag: v[0] & (1 << 0) != 0,
-            _two_step_flag: v[0] & (1 << 1) != 0,
-            _unicast_flag: v[0] & (1 << 2) != 0,
-            _ptp_profile_specific_1: v[0] & (1 << 5) != 0,
-            _ptp_profile_specific_2: v[0] & (1 << 6) != 0,
-            _ptp_security_flag: v[0] & (1 << 7) != 0,
-            _leap61: v[1] & (1 << 0) != 0,
-            _leap59: v[1] & (1 << 1) != 0,
-            _current_utc_offset_valid: v[1] & (1 << 2) != 0,
-            _ptp_timescale: v[1] & (1 << 3) != 0,
-            _time_traceable: v[1] & (1 << 4) != 0,
-            _frequency_traceable: v[1] & (1 << 5) != 0,
+            alternate_tt_flag: v[0] & (1 << 0) != 0,
+            two_step_flag: v[0] & (1 << 1) != 0,
+            unicast_flag: v[0] & (1 << 2) != 0,
+            ptp_profile_specific_1: v[0] & (1 << 5) != 0,
+            ptp_profile_specific_2: v[0] & (1 << 6) != 0,
+            ptp_security_flag: v[0] & (1 << 7) != 0,
+            leap61: v[1] & (1 << 0) != 0,
+            leap59: v[1] & (1 << 1) != 0,
+            current_utc_offset_valid: v[1] & (1 << 2) != 0,
+            ptp_timescale: v[1] & (1 << 3) != 0,
+            time_traceable: v[1] & (1 << 4) != 0,
+            frequency_traceable: v[1] & (1 << 5) != 0,
         })
+    }
+}
+
+impl Display for PtpHeaderFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Alternate TT: {}, Two Step: {}, Unicast: {}, Profile Specific 1: {}, \
+            Profile Specific 2: {}, Security: {}, Leap 61: {}, Leap 59: {}, \
+            UTC Offset Valid: {}, PTP Timescale: {}, Time Traceable: {}, Frequency Traceable: {}",
+            self.alternate_tt_flag,
+            self.two_step_flag,
+            self.unicast_flag,
+            self.ptp_profile_specific_1,
+            self.ptp_profile_specific_2,
+            self.ptp_security_flag,
+            self.leap61,
+            self.leap59,
+            self.current_utc_offset_valid,
+            self.ptp_timescale,
+            self.time_traceable,
+            self.frequency_traceable,
+        )
     }
 }
 
