@@ -653,8 +653,8 @@ impl PtpTracker {
             ptp_message: msg,
             timestamp: std::time::Instant::now(),
             vlan_id: raw_packet.vlan_id,
-            source_ip: raw_packet.source_addr.ip(),
-            source_port: raw_packet.source_addr.port(),
+            source_addr: raw_packet.source_addr,
+            dest_addr: raw_packet.dest_addr,
             interface: raw_packet.interface_name.clone(),
             _raw_packet_data: raw_packet.data.clone(),
         });

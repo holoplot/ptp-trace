@@ -2,14 +2,14 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
 use crate::{
     app::{ActiveView, App, SortColumn, TreeNode},
     ptp::{PtpHost, PtpHostState},
-    types::{format_timestamp, PtpClockAccuracy, PtpClockClass},
+    types::{format_timestamp, ProcessedPacket, PtpClockAccuracy, PtpClockClass},
     version,
 };
 
@@ -216,6 +216,11 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     } else {
         render_main_content(f, chunks[1], app);
         render_packet_history(f, chunks[2], app);
+    }
+
+    // Render packet modal overlay if active
+    if app.show_packet_modal {
+        render_packet_modal(f, f.size(), app);
     }
 }
 
@@ -877,6 +882,10 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from("  ↓/j        - Move selection down (in active view)"),
         Line::from("  PgUp/PgDn  - Page up/down (10 items)"),
         Line::from("  Home/End   - Jump to top/bottom"),
+        Line::from("  Enter      - Show packet details (when packet history active)"),
+        Line::from("  ↑↓/k/j     - Scroll modal content (when modal open)"),
+        Line::from("  PgUp/PgDn/Space - Page scroll modal content (when modal open)"),
+        Line::from("  Home/End   - Jump to top/bottom of modal (when modal open)"),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Actions:",
@@ -1019,6 +1028,26 @@ fn render_scrollbar(
     }
 }
 
+fn format_instant(instant: std::time::Instant) -> String {
+    let elapsed = instant.elapsed();
+
+    let elapsed_str = if elapsed.as_secs() < 1 {
+        format!("{}ms", elapsed.as_millis())
+    } else if elapsed.as_secs() < 60 {
+        format!("{:.1}s", elapsed.as_secs_f32())
+    } else if elapsed.as_secs() < 3600 {
+        format!("{}m{}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60)
+    } else {
+        format!(
+            "{}h{}m",
+            elapsed.as_secs() / 3600,
+            (elapsed.as_secs() % 3600) / 60
+        )
+    };
+
+    format!("{} ago", elapsed_str)
+}
+
 fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     let packets = app.get_packet_history();
     let total_packets = packets.len();
@@ -1035,14 +1064,19 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     app.set_visible_packet_height(visible_packets);
 
     // Auto-scroll to bottom if in host table view and auto-scroll is enabled
-    if matches!(app.active_view, ActiveView::HostTable) && app.auto_scroll_packets {
+    // But don't change selection if modal is open (to keep modal content stable)
+    if matches!(app.active_view, ActiveView::HostTable)
+        && app.auto_scroll_packets
+        && !app.show_packet_modal
+    {
         if total_packets > 0 {
             app.selected_packet_index = total_packets - 1;
             let max_scroll = total_packets.saturating_sub(visible_packets);
             app.packet_scroll_offset = max_scroll;
         }
-    } else if matches!(app.active_view, ActiveView::PacketHistory) {
+    } else if matches!(app.active_view, ActiveView::PacketHistory) && !app.show_packet_modal {
         // Ensure selected packet is visible when in packet history view
+        // But don't adjust if modal is open to keep selection stable
         app.ensure_packet_visible();
     }
 
@@ -1147,21 +1181,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         .iter()
         .enumerate()
         .map(|(i, packet)| {
-            let elapsed = packet.timestamp.elapsed();
-            let time_str = if elapsed.as_secs() < 1 {
-                format!("{}ms", elapsed.as_millis())
-            } else if elapsed.as_secs() < 60 {
-                format!("{:.1}s", elapsed.as_secs_f32())
-            } else if elapsed.as_secs() < 3600 {
-                format!("{}m{}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60)
-            } else {
-                format!(
-                    "{}h{}m",
-                    elapsed.as_secs() / 3600,
-                    (elapsed.as_secs() % 3600) / 60
-                )
-            };
-
+            let time_str = format_instant(packet.timestamp);
             let header = packet.ptp_message.header();
 
             let row_style =
@@ -1179,10 +1199,16 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                     Some(id) => id.to_string(),
                     None => "-".to_string(),
                 }),
-                Cell::from(packet.source_ip.to_string()),
-                Cell::from(packet.source_port.to_string()),
+                Cell::from(match packet.source_addr {
+                    std::net::SocketAddr::V4(a) => a.ip().to_string(),
+                    _ => "-".to_string(),
+                }),
+                Cell::from(match packet.source_addr {
+                    std::net::SocketAddr::V4(a) => a.port().to_string(),
+                    _ => "-".to_string(),
+                }),
                 Cell::from(packet.interface.clone()),
-                Cell::from(format!("v{}", header.version)),
+                Cell::from(header.version.to_string()),
                 Cell::from(Span::styled(
                     header.message_type.to_string(),
                     theme.get_message_type_color(&header.message_type),
@@ -1234,4 +1260,330 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
             theme,
         );
     }
+}
+
+fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
+    if let Some(packet) = app.get_modal_packet().cloned() {
+        // Calculate modal size (70% width, 80% height)
+        let modal_width = (area.width as f32 * 0.7) as u16;
+        let modal_height = (area.height as f32 * 0.8) as u16;
+        let x = (area.width - modal_width) / 2;
+        let y = (area.height - modal_height) / 2;
+
+        let modal_area = Rect {
+            x,
+            y,
+            width: modal_width,
+            height: modal_height,
+        };
+
+        // Create a dimmed overlay background (don't clear, just dim)
+        let overlay = Block::default().style(Style::default().bg(Color::Rgb(20, 20, 20)));
+        f.render_widget(overlay, area);
+
+        // Create modal content layout
+        let modal_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(60), // Packet details
+                Constraint::Percentage(40), // Hexdump
+            ])
+            .split(modal_area);
+
+        // Modal title
+        let title = format!(
+            "Packet Details - Sequence ID: {} (Press ESC to close)",
+            packet.ptp_message.header().sequence_id
+        );
+
+        // Get theme reference before mutable operations
+        let theme = app.theme.clone();
+
+        let modal_block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border_focused))
+            .style(Style::default().bg(theme.background));
+
+        // Clear only the modal area and render the main container
+        f.render_widget(Clear, modal_area);
+        f.render_widget(modal_block.clone(), modal_area);
+
+        // Render packet details
+        render_packet_details(f, modal_chunks[0], &packet, &theme, app);
+
+        // Render hexdump
+        render_packet_hexdump(f, modal_chunks[1], &packet, &theme);
+    }
+}
+
+fn render_packet_details(
+    f: &mut Frame,
+    area: Rect,
+    packet: &ProcessedPacket,
+    theme: &crate::themes::Theme,
+    app: &mut App,
+) {
+    let header = packet.ptp_message.header();
+    let time_str = format_instant(packet.timestamp);
+
+    // Define the width for label alignment (same as host details)
+    const LABEL_WIDTH: usize = 30;
+
+    // Build all content lines (no truncation)
+    let mut all_lines = vec![
+        create_aligned_field("Timestamp:", time_str, LABEL_WIDTH, theme),
+        create_aligned_field(
+            "Source Address:",
+            packet.source_addr.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "Dest Address:",
+            packet.dest_addr.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field("Interface:", packet.interface.clone(), LABEL_WIDTH, theme),
+        create_aligned_field(
+            "VLAN ID:",
+            packet.vlan_id.map_or("-".to_string(), |id| id.to_string()),
+            LABEL_WIDTH,
+            theme,
+        ),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "PTP Header:",
+            Style::default()
+                .fg(theme.table_header)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        create_aligned_field("Version:", header.version.to_string(), LABEL_WIDTH, theme),
+        Line::from(vec![
+            Span::styled(
+                format!("{:width$}", "Message Type:", width = LABEL_WIDTH),
+                Style::default().fg(theme.text_secondary),
+            ),
+            Span::styled(
+                header.message_type.to_string(),
+                theme.get_message_type_color(&header.message_type),
+            ),
+        ]),
+        create_aligned_field(
+            "Message Length:",
+            format!("{} bytes", header.message_length),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "Domain Number:",
+            header.domain_number.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "Sequence ID:",
+            header.sequence_id.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "Correction Field:",
+            header.correction_field.value.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "Log Message Interval:",
+            header.log_message_interval.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Message Details:",
+            Style::default()
+                .fg(theme.table_header)
+                .add_modifier(Modifier::BOLD),
+        )]),
+    ];
+
+    // Add detailed message fields
+    let message_details = packet.ptp_message.details();
+    if !message_details.is_empty() {
+        for (field_name, field_value) in message_details.iter() {
+            all_lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{:width$}", format!("{}:", field_name), width = LABEL_WIDTH),
+                    Style::default().fg(theme.text_secondary),
+                ),
+                Span::styled(field_value.clone(), Style::default().fg(theme.text_primary)),
+            ]));
+        }
+    }
+
+    // Add flag details section
+    all_lines.extend(vec![
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Flag Details:",
+            Style::default()
+                .fg(theme.table_header)
+                .add_modifier(Modifier::BOLD),
+        )]),
+    ]);
+
+    // Add all flag details
+    let flag_details = header.flags.details();
+    for (flag_name, flag_value) in flag_details.iter() {
+        let value_color = if *flag_value {
+            theme.confidence_high // Green for true
+        } else {
+            theme.confidence_low // Red for false
+        };
+
+        all_lines.push(Line::from(vec![
+            Span::styled(
+                format!("{:width$}", format!("{}:", flag_name), width = LABEL_WIDTH),
+                Style::default().fg(theme.text_secondary),
+            ),
+            Span::styled(flag_value.to_string(), Style::default().fg(value_color)),
+        ]));
+    }
+
+    // Calculate scrolling - need to account for title line in the block
+    let total_lines = all_lines.len();
+    let content_height = area.height.saturating_sub(3) as usize; // Subtract top border, title, bottom border
+    let visible_height = content_height;
+
+    // Clamp scroll offset to valid range
+    app.clamp_modal_scroll(total_lines, visible_height);
+
+    // Get visible lines based on scroll offset
+    let start_line = app.modal_scroll_offset;
+    let end_line = (start_line + visible_height).min(total_lines);
+    let visible_lines = if start_line < total_lines && visible_height > 0 {
+        &all_lines[start_line..end_line]
+    } else {
+        &[]
+    };
+
+    let title = format!(
+        "Packet Information (↑↓ to scroll, lines {}-{}/{})",
+        if total_lines > 0 { start_line + 1 } else { 0 },
+        if total_lines > 0 { end_line } else { 0 },
+        total_lines
+    );
+
+    let detail_block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_normal))
+        .style(Style::default().bg(theme.background));
+
+    let paragraph = Paragraph::new(visible_lines.to_vec())
+        .style(Style::default().bg(theme.background))
+        .block(detail_block)
+        .wrap(Wrap { trim: true });
+
+    f.render_widget(paragraph, area);
+
+    // Render scrollbar if needed
+    if total_lines > visible_height {
+        render_scrollbar(
+            f,
+            area,
+            total_lines,
+            app.modal_scroll_offset,
+            visible_height,
+            theme,
+        );
+    }
+}
+
+fn render_packet_hexdump(
+    f: &mut Frame,
+    area: Rect,
+    packet: &ProcessedPacket,
+    theme: &crate::themes::Theme,
+) {
+    let raw_data = &packet._raw_packet_data;
+    let mut hex_lines = Vec::new();
+
+    // Create hexdump header
+    hex_lines.push(Line::from(vec![
+        Span::styled(
+            "Raw Packet Data (",
+            Style::default()
+                .fg(theme.table_header)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{} bytes", raw_data.len()),
+            Style::default()
+                .fg(theme.text_accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "):",
+            Style::default()
+                .fg(theme.table_header)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    hex_lines.push(Line::from(""));
+
+    // Generate hexdump lines (16 bytes per line)
+    for (offset, chunk) in raw_data.chunks(16).enumerate() {
+        let offset_addr = offset * 16;
+
+        // Format hex bytes
+        let mut hex_part = String::new();
+        let mut ascii_part = String::new();
+
+        for (i, byte) in chunk.iter().enumerate() {
+            if i == 8 {
+                hex_part.push(' '); // Extra space in the middle
+            }
+            hex_part.push_str(&format!("{:02x} ", byte));
+
+            // ASCII representation
+            if byte.is_ascii_graphic() || *byte == b' ' {
+                ascii_part.push(*byte as char);
+            } else {
+                ascii_part.push('.');
+            }
+        }
+
+        // Pad hex part if line is incomplete
+        while hex_part.len() < 50 {
+            hex_part.push(' ');
+        }
+
+        hex_lines.push(Line::from(vec![
+            Span::styled(
+                format!("{:08x}:  ", offset_addr),
+                Style::default().fg(theme.text_secondary),
+            ),
+            Span::styled(hex_part, Style::default().fg(theme.text_primary)),
+            Span::styled(
+                format!(" |{}|", ascii_part),
+                Style::default().fg(theme.text_accent),
+            ),
+        ]));
+    }
+
+    let block = Block::default()
+        .title("Hexdump")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_normal))
+        .style(Style::default().bg(theme.background));
+
+    let paragraph = Paragraph::new(hex_lines)
+        .style(Style::default().bg(theme.background))
+        .block(block)
+        .wrap(Wrap { trim: false });
+
+    f.render_widget(paragraph, area);
 }

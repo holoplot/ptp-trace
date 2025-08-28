@@ -19,7 +19,7 @@ const PTP_MULTICAST_ADDR: &str = "224.0.1.129";
 pub struct RawPacket {
     pub data: Vec<u8>,
     pub source_addr: std::net::SocketAddr,
-    pub _dest_addr: std::net::SocketAddr,
+    pub dest_addr: std::net::SocketAddr,
     pub vlan_id: Option<u16>,
     pub interface_name: String,
     pub ptp_payload: Vec<u8>,
@@ -234,7 +234,7 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
     Some(RawPacket {
         data: packet_data.to_vec(),
         source_addr,
-        _dest_addr: dest_addr,
+        dest_addr,
         vlan_id,
         interface_name: interface_name.to_string(),
         ptp_payload,

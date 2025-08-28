@@ -453,8 +453,8 @@ pub struct PtpHeaderFlags {
     alternate_tt_flag: bool,
     two_step_flag: bool,
     unicast_flag: bool,
-    ptp_profile_specific_1: bool,
-    ptp_profile_specific_2: bool,
+    profile_specific_1: bool,
+    profile_specific_2: bool,
     ptp_security_flag: bool,
     leap61: bool,
     leap59: bool,
@@ -468,6 +468,23 @@ impl PtpHeaderFlags {
     pub fn short(&self) -> String {
         format!("{:02x}{:02x}", self.v[0], self.v[1])
     }
+
+    pub fn details(&self) -> Vec<(&str, bool)> {
+        vec![
+            ("Alternate TT Flag", self.alternate_tt_flag),
+            ("Two-Step Flag", self.two_step_flag),
+            ("Unicast Flag", self.unicast_flag),
+            ("Profile Specific 1", self.profile_specific_1),
+            ("Profile Specific 2", self.profile_specific_2),
+            ("Security Flag", self.ptp_security_flag),
+            ("Leap 61", self.leap61),
+            ("Leap 59", self.leap59),
+            ("UTC Offset Valid", self.current_utc_offset_valid),
+            ("PTP Timescale", self.ptp_timescale),
+            ("Time Traceable", self.time_traceable),
+            ("Frequency Traceable", self.frequency_traceable),
+        ]
+    }
 }
 
 impl TryFrom<&[u8]> for PtpHeaderFlags {
@@ -479,8 +496,8 @@ impl TryFrom<&[u8]> for PtpHeaderFlags {
             alternate_tt_flag: v[0] & (1 << 0) != 0,
             two_step_flag: v[0] & (1 << 1) != 0,
             unicast_flag: v[0] & (1 << 2) != 0,
-            ptp_profile_specific_1: v[0] & (1 << 5) != 0,
-            ptp_profile_specific_2: v[0] & (1 << 6) != 0,
+            profile_specific_1: v[0] & (1 << 5) != 0,
+            profile_specific_2: v[0] & (1 << 6) != 0,
             ptp_security_flag: v[0] & (1 << 7) != 0,
             leap61: v[1] & (1 << 0) != 0,
             leap59: v[1] & (1 << 1) != 0,
@@ -496,23 +513,21 @@ impl Display for PtpHeaderFlags {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Alternate TT: {}, Two Step: {}, Unicast: {}, Profile Specific 1: {}, \
-            Profile Specific 2: {}, Security: {}, Leap 61: {}, Leap 59: {}, \
-            UTC Offset Valid: {}, PTP Timescale: {}, Time Traceable: {}, Frequency Traceable: {}",
-            self.alternate_tt_flag,
-            self.two_step_flag,
-            self.unicast_flag,
-            self.ptp_profile_specific_1,
-            self.ptp_profile_specific_2,
-            self.ptp_security_flag,
-            self.leap61,
-            self.leap59,
-            self.current_utc_offset_valid,
-            self.ptp_timescale,
-            self.time_traceable,
-            self.frequency_traceable,
+            "{}",
+            self.details()
+                .iter()
+                .map(|(s, b)| format!("{s}: {b}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     }
+}
+
+fn format_kv(kv: Vec<(&str, String)>) -> String {
+    kv.iter()
+        .map(|(k, v)| format!("{k}: {v}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -569,6 +584,26 @@ pub struct AnnounceMessage {
     pub time_source: u8,
 }
 
+impl AnnounceMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![
+            ("Origin Timestamp", self.origin_timestamp.to_string()),
+            ("Current UTC Offset", self.current_utc_offset.to_string()),
+            ("Priority1", self.priority1.to_string()),
+            ("Priority2", self.priority2.to_string()),
+            ("Clock Class", self.clock_class.to_string()),
+            ("Clock Accuracy", self.clock_accuracy.to_string()),
+            (
+                "Offset Scaled Log Variance",
+                self.offset_scaled_log_variance.to_string(),
+            ),
+            ("PTP Identity", self.ptt_identity.to_string()),
+            ("Steps Removed", self.steps_removed.to_string()),
+            ("Time Source", self.time_source.to_string()),
+        ]
+    }
+}
+
 impl TryFrom<&[u8]> for AnnounceMessage {
     type Error = anyhow::Error;
 
@@ -596,15 +631,7 @@ impl TryFrom<&[u8]> for AnnounceMessage {
 
 impl Display for AnnounceMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Priority1: {}, ClockClass: {}, Accuracy: {}, Priority2: {}, StepsRemoved: {}",
-            self.priority1,
-            self.clock_class,
-            self.clock_accuracy,
-            self.priority2,
-            self.steps_removed
-        )
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -612,6 +639,12 @@ impl Display for AnnounceMessage {
 pub struct SyncMessage {
     pub header: PtpHeader,
     pub origin_timestamp: PtpTimestamp,
+}
+
+impl SyncMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![("OriginTS", self.origin_timestamp.to_string())]
+    }
 }
 
 impl TryFrom<&[u8]> for SyncMessage {
@@ -632,7 +665,7 @@ impl TryFrom<&[u8]> for SyncMessage {
 
 impl Display for SyncMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OriginTS: {}", self.origin_timestamp)
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -640,6 +673,12 @@ impl Display for SyncMessage {
 pub struct FollowUpMessage {
     pub header: PtpHeader,
     pub precise_origin_timestamp: PtpTimestamp,
+}
+
+impl FollowUpMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![("PreciseOriginTS", self.precise_origin_timestamp.to_string())]
+    }
 }
 
 impl TryFrom<&[u8]> for FollowUpMessage {
@@ -660,7 +699,7 @@ impl TryFrom<&[u8]> for FollowUpMessage {
 
 impl Display for FollowUpMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PreciseOriginTS: {}", self.precise_origin_timestamp)
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -668,6 +707,12 @@ impl Display for FollowUpMessage {
 pub struct PDelayReqMessage {
     pub header: PtpHeader,
     pub origin_timestamp: PtpTimestamp,
+}
+
+impl PDelayReqMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![("OriginTS", self.origin_timestamp.to_string())]
+    }
 }
 
 impl TryFrom<&[u8]> for PDelayReqMessage {
@@ -688,7 +733,7 @@ impl TryFrom<&[u8]> for PDelayReqMessage {
 
 impl Display for PDelayReqMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OriginTS: {}", self.origin_timestamp)
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -697,6 +742,18 @@ pub struct PDelayRespMessage {
     pub header: PtpHeader,
     pub request_receipt_timestamp: PtpTimestamp,
     pub requesting_port_identity: PortIdentity,
+}
+
+impl PDelayRespMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![
+            (
+                "RequestReceiptTS",
+                self.request_receipt_timestamp.to_string(),
+            ),
+            ("RequestingPI", self.requesting_port_identity.to_string()),
+        ]
+    }
 }
 
 impl TryFrom<&[u8]> for PDelayRespMessage {
@@ -718,11 +775,7 @@ impl TryFrom<&[u8]> for PDelayRespMessage {
 
 impl Display for PDelayRespMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "RequestReceiptTS: {}, RequestingPI: {}",
-            self.request_receipt_timestamp, self.requesting_port_identity
-        )
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -731,6 +784,18 @@ pub struct PDelayRespFollowUpMessage {
     pub header: PtpHeader,
     pub response_origin_timestamp: PtpTimestamp,
     pub requesting_port_identity: PortIdentity,
+}
+
+impl PDelayRespFollowUpMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![
+            (
+                "ResponseOriginTS",
+                self.response_origin_timestamp.to_string(),
+            ),
+            ("RequestingPI", self.requesting_port_identity.to_string()),
+        ]
+    }
 }
 
 impl TryFrom<&[u8]> for PDelayRespFollowUpMessage {
@@ -752,11 +817,7 @@ impl TryFrom<&[u8]> for PDelayRespFollowUpMessage {
 
 impl Display for PDelayRespFollowUpMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ResponseOriginTS: {}, RequestingPI: {}",
-            self.response_origin_timestamp, self.requesting_port_identity
-        )
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -764,6 +825,12 @@ impl Display for PDelayRespFollowUpMessage {
 pub struct DelayReqMessage {
     pub header: PtpHeader,
     pub origin_timestamp: PtpTimestamp,
+}
+
+impl DelayReqMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![("Origin TS", self.origin_timestamp.to_string())]
+    }
 }
 
 impl TryFrom<&[u8]> for DelayReqMessage {
@@ -784,7 +851,7 @@ impl TryFrom<&[u8]> for DelayReqMessage {
 
 impl Display for DelayReqMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OriginTS: {}", self.origin_timestamp)
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -793,6 +860,15 @@ pub struct DelayRespMessage {
     pub header: PtpHeader,
     pub receive_timestamp: PtpTimestamp,
     pub requesting_port_identity: PortIdentity,
+}
+
+impl DelayRespMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![
+            ("Receive TS", self.receive_timestamp.to_string()),
+            ("Requesting PI", self.requesting_port_identity.to_string()),
+        ]
+    }
 }
 
 impl TryFrom<&[u8]> for DelayRespMessage {
@@ -814,11 +890,7 @@ impl TryFrom<&[u8]> for DelayRespMessage {
 
 impl Display for DelayRespMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ReceiveTS: {}, RequestingPI: {}",
-            self.receive_timestamp, self.requesting_port_identity
-        )
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -827,6 +899,12 @@ pub struct SignalingMessage {
     pub header: PtpHeader,
     pub target_port_identity: PortIdentity,
     // FIXME!
+}
+
+impl SignalingMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![("Target PI", self.target_port_identity.to_string())]
+    }
 }
 
 impl TryFrom<&[u8]> for SignalingMessage {
@@ -846,7 +924,7 @@ impl TryFrom<&[u8]> for SignalingMessage {
 
 impl Display for SignalingMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TargetPI: {}", self.target_port_identity)
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -858,6 +936,20 @@ pub struct ManagementMessage {
     pub boundary_hops: u8,
     pub action_field: u8,
     // FIXME!
+}
+
+impl ManagementMessage {
+    pub fn details(&self) -> Vec<(&str, String)> {
+        vec![
+            ("Target PI", format!("{}", self.target_port_identity)),
+            (
+                "StartingBoundaryHops",
+                format!("{}", self.starting_boundary_hops),
+            ),
+            ("BoundaryHops", format!("{}", self.boundary_hops)),
+            ("ActionField", format!("{}", self.action_field)),
+        ]
+    }
 }
 
 impl TryFrom<&[u8]> for ManagementMessage {
@@ -880,14 +972,7 @@ impl TryFrom<&[u8]> for ManagementMessage {
 
 impl Display for ManagementMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "TargetPI: {}, StartingBoundaryHops: {}, BoundaryHops: {}, ActionField: {}",
-            self.target_port_identity,
-            self.starting_boundary_hops,
-            self.boundary_hops,
-            self.action_field
-        )
+        write!(f, "{}", format_kv(self.details()))
     }
 }
 
@@ -918,6 +1003,21 @@ impl PtpMessage {
             PtpMessage::PDelayRespFollowup(msg) => &msg.header,
             PtpMessage::Signaling(msg) => &msg.header,
             PtpMessage::Management(msg) => &msg.header,
+        }
+    }
+
+    pub fn details(&self) -> Vec<(&str, String)> {
+        match self {
+            PtpMessage::Announce(msg) => msg.details(),
+            PtpMessage::DelayReq(msg) => msg.details(),
+            PtpMessage::DelayResp(msg) => msg.details(),
+            PtpMessage::Sync(msg) => msg.details(),
+            PtpMessage::PDelayReq(msg) => msg.details(),
+            PtpMessage::PDelayResp(msg) => msg.details(),
+            PtpMessage::FollowUp(msg) => msg.details(),
+            PtpMessage::PDelayRespFollowup(msg) => msg.details(),
+            PtpMessage::Signaling(msg) => msg.details(),
+            PtpMessage::Management(msg) => msg.details(),
         }
     }
 }
@@ -976,9 +1076,9 @@ impl Display for PtpMessage {
 pub struct ProcessedPacket {
     pub ptp_message: PtpMessage,
     pub timestamp: std::time::Instant,
-    pub source_ip: std::net::IpAddr,
+    pub source_addr: std::net::SocketAddr,
+    pub dest_addr: std::net::SocketAddr,
     pub vlan_id: Option<u16>,
-    pub source_port: u16,
     pub interface: String,
     pub _raw_packet_data: Vec<u8>,
 }

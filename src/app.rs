@@ -122,6 +122,10 @@ pub struct App {
     pub selected_packet_index: usize,
     pub auto_scroll_packets: bool,
     pub visible_packet_height: usize,
+    pub show_packet_modal: bool,
+    pub modal_packet: Option<ProcessedPacket>,
+    pub modal_scroll_offset: usize,
+    pub modal_visible_height: usize,
 }
 
 impl App {
@@ -157,6 +161,10 @@ impl App {
             selected_packet_index: 0,
             auto_scroll_packets: true,
             visible_packet_height: 8,
+            show_packet_modal: false,
+            modal_packet: None,
+            modal_scroll_offset: 0,
+            modal_visible_height: 10,
         };
 
         // Set the max packet history on the tracker
@@ -255,7 +263,12 @@ impl App {
                 self.state = AppState::Quitting;
             }
             KeyCode::Esc => {
-                if self.show_help {
+                if self.show_packet_modal {
+                    self.show_packet_modal = false;
+                    self.modal_packet = None;
+                    self.modal_scroll_offset = 0;
+                    self.modal_visible_height = 10;
+                } else if self.show_help {
                     self.show_help = false;
                 } else {
                     self.state = AppState::Quitting;
@@ -278,30 +291,73 @@ impl App {
                 self.selected_index = 0;
                 self.selected_host_id = None;
             }
-            KeyCode::Up | KeyCode::Char('k') => match self.active_view {
-                ActiveView::HostTable => self.move_selection_up(),
-                ActiveView::PacketHistory => self.move_packet_selection_up(),
-            },
-            KeyCode::Down | KeyCode::Char('j') => match self.active_view {
-                ActiveView::HostTable => self.move_selection_down(),
-                ActiveView::PacketHistory => self.move_packet_selection_down(),
-            },
-            KeyCode::PageUp => match self.active_view {
-                ActiveView::HostTable => self.move_selection_page_up(),
-                ActiveView::PacketHistory => self.move_packet_selection_page_up(),
-            },
-            KeyCode::PageDown => match self.active_view {
-                ActiveView::HostTable => self.move_selection_page_down(self.visible_height),
-                ActiveView::PacketHistory => self.move_packet_selection_page_down(),
-            },
-            KeyCode::Home => match self.active_view {
-                ActiveView::HostTable => self.move_selection_to_top(),
-                ActiveView::PacketHistory => self.move_packet_selection_to_top(),
-            },
-            KeyCode::End => match self.active_view {
-                ActiveView::HostTable => self.move_selection_to_bottom(self.visible_height),
-                ActiveView::PacketHistory => self.move_packet_selection_to_bottom(),
-            },
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.show_packet_modal {
+                    self.scroll_modal_up();
+                } else {
+                    match self.active_view {
+                        ActiveView::HostTable => self.move_selection_up(),
+                        ActiveView::PacketHistory => self.move_packet_selection_up(),
+                    }
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.show_packet_modal {
+                    self.scroll_modal_down();
+                } else {
+                    match self.active_view {
+                        ActiveView::HostTable => self.move_selection_down(),
+                        ActiveView::PacketHistory => self.move_packet_selection_down(),
+                    }
+                }
+            }
+            KeyCode::PageUp => {
+                if self.show_packet_modal {
+                    self.scroll_modal_page_up(self.modal_visible_height);
+                } else {
+                    match self.active_view {
+                        ActiveView::HostTable => self.move_selection_page_up(),
+                        ActiveView::PacketHistory => self.move_packet_selection_page_up(),
+                    }
+                }
+            }
+            KeyCode::PageDown => {
+                if self.show_packet_modal {
+                    self.scroll_modal_page_down(self.modal_visible_height);
+                } else {
+                    match self.active_view {
+                        ActiveView::HostTable => self.move_selection_page_down(self.visible_height),
+                        ActiveView::PacketHistory => self.move_packet_selection_page_down(),
+                    }
+                }
+            }
+            KeyCode::Char(' ') => {
+                if self.show_packet_modal {
+                    self.scroll_modal_page_down(self.modal_visible_height);
+                } else {
+                    // Space does nothing when modal is not open
+                }
+            }
+            KeyCode::Home => {
+                if self.show_packet_modal {
+                    self.scroll_modal_to_top();
+                } else {
+                    match self.active_view {
+                        ActiveView::HostTable => self.move_selection_to_top(),
+                        ActiveView::PacketHistory => self.move_packet_selection_to_top(),
+                    }
+                }
+            }
+            KeyCode::End => {
+                if self.show_packet_modal {
+                    self.scroll_modal_to_bottom();
+                } else {
+                    match self.active_view {
+                        ActiveView::HostTable => self.move_selection_to_bottom(self.visible_height),
+                        ActiveView::PacketHistory => self.move_packet_selection_to_bottom(),
+                    }
+                }
+            }
             KeyCode::Char('d') => {
                 self.debug = !self.debug;
             }
@@ -331,6 +387,19 @@ impl App {
             }
             KeyCode::Char('x') => {
                 self.clear_packet_history();
+            }
+            KeyCode::Enter => {
+                if matches!(self.active_view, ActiveView::PacketHistory) {
+                    let packet_count = self.get_packet_history().len();
+                    if packet_count > 0 && self.selected_packet_index < packet_count {
+                        if let Some(packet) = self.get_selected_packet() {
+                            self.modal_packet = Some(packet);
+                            self.show_packet_modal = true;
+                            self.modal_scroll_offset = 0;
+                            self.modal_visible_height = 10;
+                        }
+                    }
+                }
             }
             _ => {
                 // Other keys - no action needed
@@ -1091,5 +1160,58 @@ impl App {
 
     pub fn set_visible_packet_height(&mut self, height: usize) {
         self.visible_packet_height = height;
+    }
+
+    pub fn get_selected_packet(&self) -> Option<ProcessedPacket> {
+        let packets = self.get_packet_history();
+        if self.selected_packet_index < packets.len() {
+            Some(packets[self.selected_packet_index].clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_modal_packet(&self) -> Option<&ProcessedPacket> {
+        self.modal_packet.as_ref()
+    }
+
+    fn scroll_modal_up(&mut self) {
+        if self.modal_scroll_offset > 0 {
+            self.modal_scroll_offset -= 1;
+        }
+    }
+
+    fn scroll_modal_down(&mut self) {
+        self.modal_scroll_offset += 1;
+        // Bounds will be enforced in the UI rendering
+    }
+
+    pub fn scroll_modal_page_up(&mut self, page_size: usize) {
+        self.modal_scroll_offset = self.modal_scroll_offset.saturating_sub(page_size);
+    }
+
+    pub fn scroll_modal_page_down(&mut self, page_size: usize) {
+        self.modal_scroll_offset += page_size;
+        // Bounds will be enforced in the UI rendering
+    }
+
+    fn scroll_modal_to_top(&mut self) {
+        self.modal_scroll_offset = 0;
+    }
+
+    fn scroll_modal_to_bottom(&mut self) {
+        // This will be properly set when clamp_modal_scroll is called with actual dimensions
+        self.modal_scroll_offset = usize::MAX; // Will be clamped to show last line
+    }
+
+    pub fn clamp_modal_scroll(&mut self, total_lines: usize, visible_height: usize) {
+        self.modal_visible_height = visible_height;
+        // Ensure we can always see the last line when scrolled to bottom
+        let max_scroll = if total_lines <= visible_height {
+            0
+        } else {
+            total_lines - visible_height
+        };
+        self.modal_scroll_offset = self.modal_scroll_offset.min(max_scroll);
     }
 }
