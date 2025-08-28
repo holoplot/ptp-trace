@@ -126,7 +126,7 @@ pub struct App {
     pub modal_packet: Option<ProcessedPacket>,
     pub modal_scroll_offset: usize,
     pub modal_visible_height: usize,
-    pub needs_screen_refresh: bool,
+    pub force_redraw: bool,
 }
 
 impl App {
@@ -166,7 +166,7 @@ impl App {
             modal_packet: None,
             modal_scroll_offset: 0,
             modal_visible_height: 10,
-            needs_screen_refresh: false,
+            force_redraw: false,
         };
 
         // Set the max packet history on the tracker
@@ -199,10 +199,11 @@ impl App {
         let mut last_tick = Instant::now();
 
         loop {
-            // Handle screen refresh if requested
-            if self.needs_screen_refresh {
+            // Handle forced redraw (like Ctrl+L)
+            if self.force_redraw {
+                terminal.resize(terminal.size()?)?;
                 terminal.clear()?;
-                self.needs_screen_refresh = false;
+                self.force_redraw = false;
             }
 
             // Draw the UI
@@ -215,12 +216,15 @@ impl App {
             if event::poll(timeout)? {
                 match event::read()? {
                     Event::Key(key) => {
-                        if let Err(_e) = self.handle_key_event(key.code).await {
+                        if let Err(_e) = self.handle_key_event_with_modifiers(key).await {
                             self.state = AppState::Quitting;
                             break;
                         }
                     }
-                    Event::Resize(_, _) => {}
+                    Event::Resize(_, _) => {
+                        // Terminal resize automatically triggers full redraw
+                        terminal.resize(terminal.size()?)?;
+                    }
                     _ => {}
                 }
             }
@@ -246,7 +250,18 @@ impl App {
         Ok(())
     }
 
-    async fn handle_key_event(&mut self, key_code: KeyCode) -> Result<()> {
+    async fn handle_key_event_with_modifiers(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Result<()> {
+        self.handle_key_event(key.code, key.modifiers).await
+    }
+
+    async fn handle_key_event(
+        &mut self,
+        key_code: KeyCode,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Result<()> {
         match key_code {
             KeyCode::Tab => {
                 self.active_view = match self.active_view {
@@ -288,11 +303,13 @@ impl App {
             KeyCode::Char('r') => {
                 self.update_data().await?;
             }
-            KeyCode::Char('\x0C') => {
+            KeyCode::Char('\x0C') | KeyCode::Char('l')
+                if modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
                 // Ctrl+L - refresh/redraw screen (standard terminal convention)
-                // Force a complete redraw by updating data and clearing terminal
+                // Force a complete refresh like terminal resize does
                 self.update_data().await?;
-                self.needs_screen_refresh = true;
+                self.force_redraw = true;
             }
             KeyCode::Char('c') => {
                 self.ptp_tracker.clear_hosts();
