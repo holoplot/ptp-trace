@@ -112,26 +112,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpcap-dev pkg-config
 
-      # Windows dependencies - Install Npcap SDK
+      # Windows dependencies - Try multiple approaches
       - name: Install Windows dependencies
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
+          Write-Host "Setting up Windows pcap libraries..."
+
+          # Try approach 1: Download Npcap SDK
           try {
-            # Create directory
-            Write-Host "Creating SDK directory..."
+            Write-Host "Attempting to download Npcap SDK..."
             New-Item -ItemType Directory -Path "C:\npcap-sdk" -Force | Out-Null
-
-            # Download Npcap SDK
-            Write-Host "Downloading Npcap SDK..."
             $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.13.zip" -OutFile "npcap-sdk.zip" -UseBasicParsing
-
-            # Extract SDK
-            Write-Host "Extracting Npcap SDK..."
+            Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.13.zip" -OutFile "npcap-sdk.zip" -UseBasicParsing -TimeoutSec 60
             Expand-Archive -Path "npcap-sdk.zip" -DestinationPath "C:\npcap-sdk" -Force
 
-            # Find the correct lib directory
             $libDirs = @("C:\npcap-sdk\Lib\x64", "C:\npcap-sdk\Lib")
             $libPath = ""
             foreach ($dir in $libDirs) {
@@ -141,29 +136,37 @@ jobs:
               }
             }
 
-            if ($libPath -eq "") {
-              Write-Host "Searching for wpcap.lib in all subdirectories..."
-              $foundLib = Get-ChildItem -Path "C:\npcap-sdk" -Recurse -Name "wpcap.lib" | Select-Object -First 1
-              if ($foundLib) {
-                $libPath = Split-Path -Parent (Join-Path "C:\npcap-sdk" $foundLib)
-                Write-Host "Found wpcap.lib at: $libPath"
-              }
-            }
-
             if ($libPath -ne "") {
-              # Set environment variables
-              Write-Host "Setting environment variables for: $libPath"
               "LIBPCAP_LIBDIR=$libPath" | Add-Content -Path $env:GITHUB_ENV
               "LIB=$libPath;$($env:LIB)" | Add-Content -Path $env:GITHUB_ENV
-              Write-Host "✓ Setup complete"
-            } else {
-              Write-Host "❌ Could not find wpcap.lib"
-              exit 1
+              Write-Host "✓ Npcap SDK setup complete: $libPath"
+              exit 0
             }
           } catch {
-            Write-Host "❌ Error during Windows setup: $($_.Exception.Message)"
-            exit 1
+            Write-Host "Npcap SDK approach failed: $($_.Exception.Message)"
           }
+
+          # Try approach 2: Use vcpkg
+          try {
+            Write-Host "Attempting vcpkg approach..."
+            vcpkg install pcap:x64-windows
+            $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+            if ($vcpkgRoot) {
+              $libPath = "$vcpkgRoot\installed\x64-windows\lib"
+              if (Test-Path "$libPath\pcap.lib") {
+                "LIBPCAP_LIBDIR=$libPath" | Add-Content -Path $env:GITHUB_ENV
+                "LIB=$libPath;$($env:LIB)" | Add-Content -Path $env:GITHUB_ENV
+                Write-Host "✓ vcpkg setup complete: $libPath"
+                exit 0
+              }
+            }
+          } catch {
+            Write-Host "vcpkg approach failed: $($_.Exception.Message)"
+          }
+
+          # Try approach 3: Skip Windows build for now
+          Write-Host "⚠ All Windows setup approaches failed, will attempt build anyway"
+          "CARGO_BUILD_TARGET_DIR=target" | Add-Content -Path $env:GITHUB_ENV
 
       # macOS dependencies - libpcap should be available by default
       - name: Install macOS dependencies
@@ -181,14 +184,11 @@ jobs:
       - name: Install cross-rs for cross-compilation
         if: matrix.use_cross
         run: |
-          # Install cross-rs with retry logic
-          for i in {1..3}; do
-            if cargo install cross --git https://github.com/cross-rs/cross; then
-              break
-            fi
-            echo "Attempt $i failed, retrying..."
-            sleep 5
-          done
+          # Install cross-rs with fallback
+          if ! cargo install cross --git https://github.com/cross-rs/cross; then
+            echo "Installing from crates.io as fallback..."
+            cargo install cross
+          fi
           cross --version
 
       # Build with appropriate method
@@ -202,27 +202,28 @@ jobs:
       - name: Build with cross
         if: matrix.use_cross
         run: |
-          # Build with cross-rs with verbose output
-          cross build --release --target ${{ matrix.target }} --verbose
+          # Build with cross-rs
+          cross build --release --target ${{ matrix.target }}
           ls -la target/${{ matrix.target }}/release/ || echo "Target directory not found"
 
       - name: Strip binary (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]] || [[ "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]]; then
-            echo "Cross-compiled binary, skipping strip"
-          elif command -v strip &> /dev/null; then
-            strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || echo "Strip failed, continuing..."
-          fi
-
-          # Verify binary exists
-          if [[ -f "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" ]]; then
-            echo "✓ Binary built successfully: $(file target/${{ matrix.target }}/release/${{ matrix.artifact_name }})"
-            ls -la target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          else
+          # Verify binary exists first
+          if [[ ! -f "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" ]]; then
             echo "❌ Binary not found!"
             exit 1
           fi
+
+          # Strip if not cross-compiled
+          if [[ "${{ matrix.target }}" != "aarch64-unknown-linux-gnu" ]] && [[ "${{ matrix.target }}" != "armv7-unknown-linux-gnueabihf" ]]; then
+            if command -v strip &> /dev/null; then
+              strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || echo "Strip failed, continuing..."
+            fi
+          fi
+
+          echo "✓ Binary ready: $(file target/${{ matrix.target }}/release/${{ matrix.artifact_name }})"
+          ls -la target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
