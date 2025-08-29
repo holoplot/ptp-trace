@@ -1,14 +1,11 @@
-# Cross.toml - Minimal configuration for cross-rs cross-compilation
-
-[build.env]
-passthrough = ["LIBPCAP_LIBDIR", "PKG_CONFIG_PATH"]
+# Cross.toml - Simplified configuration for cross-rs cross-compilation
 
 # ARM64 / aarch64 target configuration
 [target.aarch64-unknown-linux-gnu]
 pre-build = [
     "dpkg --add-architecture arm64",
     "apt-get update",
-    "apt-get install -y libpcap-dev:arm64 pkg-config",
+    "apt-get install -y libpcap-dev:arm64",
 ]
 
 # ARM32 / armv7 target configuration
@@ -16,5 +13,5 @@ pre-build = [
 pre-build = [
     "dpkg --add-architecture armhf",
     "apt-get update",
-    "apt-get install -y libpcap-dev:armhf pkg-config",
+    "apt-get install -y libpcap-dev:armhf",
 ]
