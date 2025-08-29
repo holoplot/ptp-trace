@@ -58,7 +58,11 @@ fn get_git_version() -> String {
                     let cargo_version =
                         env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
                     return if version.len() >= 7 {
-                        format!("{}-g{}", cargo_version, &version[..7])
+                        format!(
+                            "{}-g{}",
+                            cargo_version,
+                            version.chars().take(7).collect::<String>()
+                        )
                     } else {
                         format!("{}-g{}", cargo_version, version)
                     };
