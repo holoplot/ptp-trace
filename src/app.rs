@@ -415,14 +415,16 @@ impl App {
                 self.clear_packet_history();
             }
             KeyCode::Enter => {
-                if matches!(self.active_view, ActiveView::PacketHistory) {
+                if self.show_packet_modal {
+                    // When modal is open, ENTER acts like cursor down
+                    self.scroll_modal_down();
+                } else if matches!(self.active_view, ActiveView::PacketHistory) {
                     let packet_count = self.get_packet_history().len();
                     if packet_count > 0 && self.selected_packet_index < packet_count {
                         if let Some(packet) = self.get_selected_packet() {
                             self.modal_packet = Some(packet);
                             self.show_packet_modal = true;
                             self.modal_scroll_offset = 0;
-                            self.modal_visible_height = 10;
                         }
                     }
                 }

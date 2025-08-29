@@ -646,7 +646,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 create_aligned_field(
                     "Last Correction: ",
                     host.last_correction_field
-                        .map_or("N/A".to_string(), |v| v.to_string()),
+                        .map_or("N/A".to_string(), |v| format!("{} ({})", v, v.value)),
                     LABEL_WIDTH,
                     theme,
                 ),
@@ -1216,7 +1216,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(header.domain_number.to_string()),
                 Cell::from(header.sequence_id.to_string()),
                 Cell::from(header.flags.short()),
-                Cell::from(header.correction_field.value.to_string()),
+                Cell::from(header.correction_field.to_string()),
                 Cell::from(header.log_message_interval.to_string()),
                 Cell::from(packet.ptp_message.to_string()),
             ])
@@ -1263,9 +1263,10 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
     if let Some(packet) = app.get_modal_packet().cloned() {
-        // Calculate modal size (70% width, 80% height)
-        let modal_width = (area.width as f32 * 0.7) as u16;
-        let modal_height = (area.height as f32 * 0.8) as u16;
+        // Calculate modal size (40% width with minimum 80 chars, 60% height)
+        let preferred_width = (area.width as f32 * 0.4) as u16;
+        let modal_width = preferred_width.max(80);
+        let modal_height = (area.height as f32 * 0.6) as u16;
         let x = (area.width - modal_width) / 2;
         let y = (area.height - modal_height) / 2;
 
@@ -1280,26 +1281,10 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
         let overlay = Block::default().style(Style::default().bg(Color::Rgb(20, 20, 20)));
         f.render_widget(overlay, area);
 
-        // Create modal content layout - split vertically (left/right)
-        // Ensure hexdump gets at least 80 characters width + margin for borders
-        let hexdump_min_width = 82;
-        let available_width = modal_area.width as usize;
-        let (details_constraint, hexdump_constraint) = if available_width > hexdump_min_width {
-            (
-                Constraint::Min((available_width - hexdump_min_width) as u16),
-                Constraint::Length(hexdump_min_width as u16),
-            )
-        } else {
-            // Fallback if modal is too narrow
-            (Constraint::Percentage(60), Constraint::Percentage(40))
-        };
-
+        // Create modal content layout - single container
         let modal_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                details_constraint, // Packet details (left)
-                hexdump_constraint, // Hexdump (right)
-            ])
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(100)]) // Single scrollable area
             .split(modal_area);
 
         // Modal title
@@ -1321,15 +1306,12 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
         f.render_widget(Clear, modal_area);
         f.render_widget(modal_block.clone(), modal_area);
 
-        // Render packet details (left side)
-        render_packet_details(f, modal_chunks[0], &packet, &theme, app);
-
-        // Render hexdump (right side)
-        render_packet_hexdump(f, modal_chunks[1], &packet, &theme);
+        // Render combined packet details and hexdump
+        render_packet_details_with_hexdump(f, modal_chunks[0], &packet, &theme, app);
     }
 }
 
-fn render_packet_details(
+fn render_packet_details_with_hexdump(
     f: &mut Frame,
     area: Rect,
     packet: &ProcessedPacket,
@@ -1438,7 +1420,10 @@ fn render_packet_details(
         create_aligned_field("Flags:", header.flags.short(), LABEL_WIDTH, theme),
         create_aligned_field(
             "Correction Field:",
-            header.correction_field.value.to_string(),
+            format!(
+                "{} ({})",
+                header.correction_field, header.correction_field.value
+            ),
             LABEL_WIDTH,
             theme,
         ),
@@ -1475,7 +1460,7 @@ fn render_packet_details(
     all_lines.extend(vec![
         Line::from(""),
         Line::from(vec![Span::styled(
-            "Header Flag Details:",
+            "Flag Details:",
             Style::default()
                 .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),
@@ -1497,6 +1482,73 @@ fn render_packet_details(
                 Style::default().fg(theme.text_secondary),
             ),
             Span::styled(flag_value.to_string(), Style::default().fg(value_color)),
+        ]));
+    }
+
+    // Add hexdump section at the end
+    let raw_data = &packet._raw_packet_data;
+    all_lines.extend(vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "Raw Packet Data (",
+                Style::default()
+                    .fg(theme.table_header)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{} bytes", raw_data.len()),
+                Style::default()
+                    .fg(theme.text_accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "):",
+                Style::default()
+                    .fg(theme.table_header)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(""),
+    ]);
+
+    // Generate hexdump lines (16 bytes per line)
+    for (offset, chunk) in raw_data.chunks(16).enumerate() {
+        let offset_addr = offset * 16;
+
+        // Format hex bytes
+        let mut hex_part = String::new();
+        let mut ascii_part = String::new();
+
+        for (i, byte) in chunk.iter().enumerate() {
+            if i == 8 {
+                hex_part.push(' '); // Extra space in the middle
+            }
+            hex_part.push_str(&format!("{:02x} ", byte));
+
+            // ASCII representation
+            if byte.is_ascii_graphic() || *byte == b' ' {
+                ascii_part.push(*byte as char);
+            } else {
+                ascii_part.push('.');
+            }
+        }
+
+        // Pad hex part if line is incomplete
+        while hex_part.len() < 50 {
+            hex_part.push(' ');
+        }
+
+        all_lines.push(Line::from(vec![
+            Span::styled(
+                format!("{:08x}:  ", offset_addr),
+                Style::default().fg(theme.text_secondary),
+            ),
+            Span::styled(hex_part, Style::default().fg(theme.text_primary)),
+            Span::styled(
+                format!(" |{}|", ascii_part),
+                Style::default().fg(theme.text_accent),
+            ),
         ]));
     }
 
@@ -1548,90 +1600,4 @@ fn render_packet_details(
             theme,
         );
     }
-}
-
-fn render_packet_hexdump(
-    f: &mut Frame,
-    area: Rect,
-    packet: &ProcessedPacket,
-    theme: &crate::themes::Theme,
-) {
-    let raw_data = &packet._raw_packet_data;
-    let mut hex_lines = Vec::new();
-
-    // Create hexdump header
-    hex_lines.push(Line::from(vec![
-        Span::styled(
-            "Raw Packet Data (",
-            Style::default()
-                .fg(theme.table_header)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("{} bytes", raw_data.len()),
-            Style::default()
-                .fg(theme.text_accent)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            "):",
-            Style::default()
-                .fg(theme.table_header)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
-    hex_lines.push(Line::from(""));
-
-    // Generate hexdump lines (16 bytes per line)
-    for (offset, chunk) in raw_data.chunks(16).enumerate() {
-        let offset_addr = offset * 16;
-
-        // Format hex bytes
-        let mut hex_part = String::new();
-        let mut ascii_part = String::new();
-
-        for (i, byte) in chunk.iter().enumerate() {
-            if i == 8 {
-                hex_part.push(' '); // Extra space in the middle
-            }
-            hex_part.push_str(&format!("{:02x} ", byte));
-
-            // ASCII representation
-            if byte.is_ascii_graphic() || *byte == b' ' {
-                ascii_part.push(*byte as char);
-            } else {
-                ascii_part.push('.');
-            }
-        }
-
-        // Pad hex part if line is incomplete
-        while hex_part.len() < 50 {
-            hex_part.push(' ');
-        }
-
-        hex_lines.push(Line::from(vec![
-            Span::styled(
-                format!("{:08x}:  ", offset_addr),
-                Style::default().fg(theme.text_secondary),
-            ),
-            Span::styled(hex_part, Style::default().fg(theme.text_primary)),
-            Span::styled(
-                format!(" |{}|", ascii_part),
-                Style::default().fg(theme.text_accent),
-            ),
-        ]));
-    }
-
-    let block = Block::default()
-        .title("Hexdump")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme.border_normal))
-        .style(Style::default().bg(theme.background));
-
-    let paragraph = Paragraph::new(hex_lines)
-        .style(Style::default().bg(theme.background))
-        .block(block)
-        .wrap(Wrap { trim: false });
-
-    f.render_widget(paragraph, area);
 }

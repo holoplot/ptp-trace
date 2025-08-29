@@ -409,12 +409,17 @@ impl PtpCorrectionField {
 
 impl Display for PtpCorrectionField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} ({:.2} ns)",
-            self.value,
-            (self.value as f64) / (1u64 << 16) as f64
-        )
+        let ns = (self.value as f64) / (1u64 << 16) as f64;
+
+        if ns == 0.0 {
+            write!(f, "0")
+        } else if ns < 1000.0 {
+            write!(f, "{:.2} ns", ns)
+        } else if ns < 1000000.0 {
+            write!(f, "{:.03} μs", ns / 1000.0)
+        } else {
+            write!(f, "{:.03} s", ns / 1000000000.0)
+        }
     }
 }
 
