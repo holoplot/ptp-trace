@@ -148,6 +148,7 @@ jobs:
         if: matrix.use_cross
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
+          cross --version
 
       # Build with appropriate method
       - name: Build with cargo
@@ -161,18 +162,24 @@ jobs:
         if: matrix.use_cross
         run: |
           cross build --release --target ${{ matrix.target }}
+          ls -la target/${{ matrix.target }}/release/
 
       - name: Strip binary (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            # For cross-compiled ARM64, the binary is already stripped by cross
-            echo "Binary built with cross, stripping may not be necessary"
-          elif [[ "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]]; then
-            # For cross-compiled ARM32, the binary is already stripped by cross
-            echo "Binary built with cross, stripping may not be necessary"
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]] || [[ "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]]; then
+            echo "Cross-compiled binary, skipping strip"
           elif command -v strip &> /dev/null; then
             strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || echo "Strip failed, continuing..."
+          fi
+
+          # Verify binary exists
+          if [[ -f "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" ]]; then
+            echo "✓ Binary built successfully: $(file target/${{ matrix.target }}/release/${{ matrix.artifact_name }})"
+            ls -la target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          else
+            echo "❌ Binary not found!"
+            exit 1
           fi
 
       - name: Upload artifact
@@ -180,6 +187,7 @@ jobs:
         with:
           name: ${{ matrix.asset_name }}
           path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          if-no-files-found: error
 
   release:
     name: Create Release

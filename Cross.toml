@@ -13,16 +13,18 @@ passthrough = [
 [target.aarch64-unknown-linux-gnu]
 pre-build = [
     "dpkg --add-architecture arm64",
-    "apt-get update && apt-get install -y libpcap0.8-dev:arm64 pkg-config",
+    "apt-get update",
+    "apt-get install -y libpcap0.8-dev:arm64 libpcap-dev:arm64 pkg-config",
 ]
 
 # ARM32 / armv7 target configuration
 [target.armv7-unknown-linux-gnueabihf]
 pre-build = [
     "dpkg --add-architecture armhf",
-    "apt-get update && apt-get install -y libpcap0.8-dev:armhf pkg-config",
+    "apt-get update",
+    "apt-get install -y libpcap0.8-dev:armhf libpcap-dev:armhf pkg-config",
 ]
 
 # x86_64 Linux (for consistency)
 [target.x86_64-unknown-linux-gnu]
-pre-build = ["apt-get update && apt-get install -y libpcap-dev pkg-config"]
+pre-build = ["apt-get update", "apt-get install -y libpcap-dev pkg-config"]
