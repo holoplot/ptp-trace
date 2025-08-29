@@ -38,117 +38,33 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: ptp-trace
-            asset_name: ptp-trace-linux-x86_64
-            use_cross: false
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact_name: ptp-trace
-            asset_name: ptp-trace-linux-aarch64
-            use_cross: true
-          - os: ubuntu-latest
-            target: armv7-unknown-linux-gnueabihf
-            artifact_name: ptp-trace
-            asset_name: ptp-trace-linux-armv7
-            use_cross: true
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: ptp-trace
-            asset_name: ptp-trace-macos-x86_64
-            use_cross: false
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug environment
-        run: |
-          echo "=== System Information ==="
-          echo "OS: ${{ matrix.os }}"
-          echo "Target: ${{ matrix.target }}"
-          echo "Use cross: ${{ matrix.use_cross }}"
-          echo "Runner: $(uname -a || systeminfo | head -5)"
-          echo "=========================="
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-          components: clippy, rustfmt
-
-      # Linux native build dependencies
-      - name: Install Linux native dependencies
-        if: matrix.os == 'ubuntu-latest' && !matrix.use_cross
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libpcap-dev pkg-config
 
-      # macOS dependencies - libpcap should be available by default
-      - name: Install macOS dependencies
-        if: matrix.os == 'macos-latest'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Strip binary
         run: |
-          # Ensure Xcode command line tools are installed
-          xcode-select --install || true
-
-          # Install pkg-config if not available
-          if ! command -v pkg-config &> /dev/null; then
-            brew install pkg-config
-          fi
-
-      # Cross-compilation setup using cross-rs
-      - name: Install cross-rs for cross-compilation
-        if: matrix.use_cross
-        run: |
-          # Install cross-rs with fallback
-          if ! cargo install cross --git https://github.com/cross-rs/cross; then
-            echo "Installing from crates.io as fallback..."
-            cargo install cross
-          fi
-          cross --version
-
-      # Build with appropriate method
-      - name: Build with cargo
-        if: "!matrix.use_cross"
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Build with cross
-        if: matrix.use_cross
-        run: |
-          # Build with cross-rs
-          cross build --release --target ${{ matrix.target }}
-          ls -la target/${{ matrix.target }}/release/ || echo "Target directory not found"
-
-      - name: Strip binary (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          # Verify binary exists first
-          if [[ ! -f "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" ]]; then
-            echo "❌ Binary not found!"
-            exit 1
-          fi
-
-          # Strip if not cross-compiled
-          if [[ "${{ matrix.target }}" != "aarch64-unknown-linux-gnu" ]] && [[ "${{ matrix.target }}" != "armv7-unknown-linux-gnueabihf" ]]; then
-            if command -v strip &> /dev/null; then
-              strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || echo "Strip failed, continuing..."
-            fi
-          fi
-
-          echo "✓ Binary ready: $(file target/${{ matrix.target }}/release/${{ matrix.artifact_name }})"
-          ls -la target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          strip target/release/ptp-trace || echo "Strip failed, continuing..."
+          ls -la target/release/ptp-trace
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          if-no-files-found: error
+          name: ptp-trace-linux-x86_64
+          path: target/release/ptp-trace
 
   release:
     name: Create Release
@@ -159,36 +75,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Display structure of downloaded files
-        run: ls -la artifacts/
-
-      - name: Create ZIP archives
-        run: |
-          cd artifacts
-          for dir in */; do
-            if [ -d "$dir" ]; then
-              cd "$dir"
-              # Find the binary file (exclude .exe for now)
-              if ls ptp-trace.exe &> /dev/null; then
-                zip -j "../${dir%/}.zip" ptp-trace.exe
-              elif ls ptp-trace &> /dev/null; then
-                zip -j "../${dir%/}.zip" ptp-trace
-              fi
-              cd ..
-            fi
-          done
-          ls -la *.zip
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            artifacts/*.zip
+          files: artifacts/ptp-trace-linux-x86_64/ptp-trace
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
