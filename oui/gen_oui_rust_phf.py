@@ -26,10 +26,23 @@ SRC_MAS = "https://standards-oui.ieee.org/oui36/oui36.csv"   # /36
 ASSIGN_RE = re.compile(r"(?i)^[^/]+?(?:/(\d{2}))?")  # capture optional /NN
 
 def fetch_bytes_http(url: str) -> bytes:
-    if not (url.startswith("http://") or url.startswith("https://")):
-        raise SystemExit("Only HTTP(S) sources are supported.")
-    with urllib.request.urlopen(url) as r:
-        return r.read()
+    import time
+    from urllib.error import HTTPError
+
+    for attempt in range(10):
+        try:
+            with urllib.request.urlopen(url) as r:
+                return r.read()
+        except HTTPError as e:
+            if e.code == 418 and attempt < 9:
+                print(f"Got HTTP 418 (I'm a teapot) for {url}, attempt {attempt + 1}/10. Retrying...", file=sys.stderr)
+                time.sleep(5)
+                continue
+            else:
+                raise
+
+    # This should never be reached due to the exception handling above
+    raise RuntimeError("Unexpected code path in fetch_bytes_http")
 
 def clean_str(s: str) -> str:
     """Strip and remove invisible/non-printable Unicode; normalize NFC."""
@@ -123,19 +136,19 @@ def render_rust(phf24: List[Tuple[int, str]],
     lines.append("use phf::phf_map;\n\n")
 
     lines.append("/// MA-L (/24) map: key = top 24 bits as u32 (first 3 octets).\n")
-    lines.append("pub static OUI24: phf::Map<u32, &'static str> = phf_map!{\n")
+    lines.append("pub static OUI24: phf::Map<u32, &'static str> = phf_map! {\n")
     for val, org in phf24:
         lines.append(f'    0x{val:06X}u32 => "{rust_escape(org)}",\n')
     lines.append("};\n\n")
 
     lines.append("/// MA-M (/28) map: key = top 28 bits as u32 (7 hex nibbles).\n")
-    lines.append("pub static OUI28: phf::Map<u32, &'static str> = phf_map!{\n")
+    lines.append("pub static OUI28: phf::Map<u32, &'static str> = phf_map! {\n")
     for val, org in phf28:
         lines.append(f'    0x{val:07X}u32 => "{rust_escape(org)}",\n')
     lines.append("};\n\n")
 
     lines.append("/// MA-S (/36) map: key = top 36 bits as u64 (9 hex nibbles).\n")
-    lines.append("pub static OUI36: phf::Map<u64, &'static str> = phf_map!{\n")
+    lines.append("pub static OUI36: phf::Map<u64, &'static str> = phf_map! {\n")
     for val, org in phf36:
         lines.append(f'    0x{val:09X}u64 => "{rust_escape(org)}",\n')
     lines.append("};\n")
@@ -145,21 +158,23 @@ def render_rust(phf24: List[Tuple[int, str]],
 /// Lookup by raw bytes; tries /36, then /28, then /24.
 pub fn lookup_vendor_bytes(mac: [u8; 6]) -> Option<&'static str> {
     let v36: u64 = ((mac[0] as u64) << 40)
-                 | ((mac[1] as u64) << 32)
-                 | ((mac[2] as u64) << 24)
-                 | ((mac[3] as u64) << 16)
-                 | ((mac[4] as u64) << 8);
-    if let Some(v) = OUI36.get(& (v36 >> 4) ) { return Some(v); } // top 36 bits
+        | ((mac[1] as u64) << 32)
+        | ((mac[2] as u64) << 24)
+        | ((mac[3] as u64) << 16)
+        | ((mac[4] as u64) << 8);
+    if let Some(v) = OUI36.get(&(v36 >> 4)) {
+        return Some(v);
+    } // top 36 bits
 
     let v28: u32 = ((mac[0] as u32) << 20)
-                 | ((mac[1] as u32) << 12)
-                 | ((mac[2] as u32) << 4)
-                 | ((mac[3] as u32) >> 4);
-    if let Some(v) = OUI28.get(&v28) { return Some(v); }
+        | ((mac[1] as u32) << 12)
+        | ((mac[2] as u32) << 4)
+        | ((mac[3] as u32) >> 4);
+    if let Some(v) = OUI28.get(&v28) {
+        return Some(v);
+    }
 
-    let v24: u32 = ((mac[0] as u32) << 16)
-                 | ((mac[1] as u32) << 8)
-                 |  (mac[2] as u32);
+    let v24: u32 = ((mac[0] as u32) << 16) | ((mac[1] as u32) << 8) | (mac[2] as u32);
     OUI24.get(&v24).copied()
 }
 """)
