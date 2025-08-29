@@ -24,29 +24,18 @@ jobs:
           sudo apt-get install -y libpcap-dev pkg-config
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
-          profile: minimal
+          components: clippy, rustfmt
 
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose
+        run: cargo test --verbose
 
       - name: Check formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   build:
     name: Build ${{ matrix.target }}
@@ -98,12 +87,10 @@ jobs:
           echo "=========================="
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
-          profile: minimal
+          targets: ${{ matrix.target }}
+          components: clippy, rustfmt
 
       # Linux native build dependencies
       - name: Install Linux native dependencies
@@ -194,10 +181,7 @@ jobs:
       # Build with appropriate method
       - name: Build with cargo
         if: "!matrix.use_cross"
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Build with cross
         if: matrix.use_cross
