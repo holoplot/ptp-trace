@@ -122,16 +122,16 @@ fn configure_linux_pcap(target: &str, target_arch: &str) {
 
     // Try pkg-config first
     if let Ok(output) = Command::new("pkg-config")
-        .args(&["--libs", "libpcap"])
+        .args(["--libs", "libpcap"])
         .output()
     {
         if output.status.success() {
             let libs = String::from_utf8_lossy(&output.stdout);
             for lib in libs.split_whitespace() {
-                if lib.starts_with("-L") {
-                    println!("cargo:rustc-link-search=native={}", &lib[2..]);
-                } else if lib.starts_with("-l") {
-                    println!("cargo:rustc-link-lib={}", &lib[2..]);
+                if let Some(stripped) = lib.strip_prefix("-L") {
+                    println!("cargo:rustc-link-search=native={}", stripped);
+                } else if let Some(stripped) = lib.strip_prefix("-l") {
+                    println!("cargo:rustc-link-lib={}", stripped);
                 }
             }
             return;
