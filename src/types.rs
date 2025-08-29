@@ -167,7 +167,7 @@ impl Display for PtpVersion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, Ord, PartialOrd, Default)]
 pub struct ClockIdentity {
     pub clock_id: [u8; 8],
 }
@@ -217,12 +217,6 @@ fn test_oui_vendor_lookup() {
             .extract_vendor_name(),
         None
     );
-}
-
-impl Default for ClockIdentity {
-    fn default() -> Self {
-        Self { clock_id: [0; 8] }
-    }
 }
 
 impl Display for ClockIdentity {

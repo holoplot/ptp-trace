@@ -47,7 +47,7 @@ impl RawSocketReceiver {
 fn iface_addrs_by_name(ifname: &str) -> io::Result<Option<Ipv4Addr>> {
     let mut v4: Option<Ipv4Addr> = None;
 
-    for iface in if_addrs::get_if_addrs().map_err(|e| io::Error::new(io::ErrorKind::Other, e))? {
+    for iface in if_addrs::get_if_addrs().map_err(io::Error::other)? {
         if iface.name == ifname {
             match iface.addr {
                 if_addrs::IfAddr::V4(a) if v4.is_none() => v4 = Some(a.ip),

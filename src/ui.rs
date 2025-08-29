@@ -67,14 +67,14 @@ fn create_host_row<'a>(
         Style::default()
     };
 
-    let mut state_display = format!("{}", host.state.short_string());
+    let mut state_display = host.state.short_string().to_string();
     if host.has_local_ip(local_ips) {
         state_display = format!("{}*", state_display);
     }
 
     // Add PTT indicator for primary transmitters (BMCA winners) in tree mode
     if is_primary_transmitter.unwrap_or(false) {
-        state_display = format!("PTT");
+        state_display = "PTT".to_string();
     }
 
     let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
@@ -122,11 +122,10 @@ fn create_host_row<'a>(
                             _ => ("", theme.text_primary), // Low/no confidence
                         };
 
-                    let cell = Cell::from(Line::from(vec![
+                    Cell::from(Line::from(vec![
                         Span::styled(id.to_string(), Style::default().fg(theme.text_primary)),
                         Span::styled(confidence_symbol, Style::default().fg(confidence_color)),
-                    ]));
-                    cell
+                    ]))
                 })
                 .unwrap_or_else(|| Cell::from("-"))
         }

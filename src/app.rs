@@ -543,11 +543,7 @@ impl App {
             let last_visible_index =
                 self.host_scroll_offset + self.visible_height.saturating_sub(1);
             if self.selected_index > last_visible_index {
-                let max_scroll_offset = if total_hosts > self.visible_height {
-                    total_hosts - self.visible_height
-                } else {
-                    0
-                };
+                let max_scroll_offset = total_hosts.saturating_sub(self.visible_height);
                 self.host_scroll_offset = max_scroll_offset;
             }
         }
@@ -571,11 +567,7 @@ impl App {
 
         // Calculate the maximum scroll offset that still shows content
         // For N hosts and V visible rows, max scroll is N-V (but never negative)
-        let max_scroll_offset = if total_hosts > visible_height {
-            total_hosts - visible_height
-        } else {
-            0
-        };
+        let max_scroll_offset = total_hosts.saturating_sub(visible_height);
 
         // Ensure scroll offset doesn't exceed the maximum
         if self.host_scroll_offset > max_scroll_offset {
@@ -606,7 +598,7 @@ impl App {
     }
 
     pub fn move_selection_page_up(&mut self) {
-        if self.ptp_tracker.get_hosts().len() == 0 {
+        if self.ptp_tracker.get_hosts().is_empty() {
             return;
         }
 
@@ -639,11 +631,7 @@ impl App {
             self.update_selected_host(self.selected_index);
         }
 
-        let max_scroll_offset = if total_hosts > visible_height {
-            total_hosts - visible_height
-        } else {
-            0
-        };
+        let max_scroll_offset = total_hosts.saturating_sub(visible_height);
 
         // Adjust scroll position if necessary
         let last_visible_index = self.host_scroll_offset + visible_height.saturating_sub(1);
@@ -672,11 +660,7 @@ impl App {
             self.update_selected_host(self.selected_index);
 
             // Set scroll to show the bottom of the list
-            let max_scroll_offset = if total_hosts > visible_height {
-                total_hosts - visible_height
-            } else {
-                0
-            };
+            let max_scroll_offset = total_hosts.saturating_sub(visible_height);
             self.host_scroll_offset = max_scroll_offset;
         }
     }
@@ -782,7 +766,7 @@ impl App {
                 if let Some(transmitter_id) = receiver_state.selected_transmitter_identity {
                     transmitter_to_receiver_indices
                         .entry(transmitter_id)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(i);
                 }
             }
@@ -1067,7 +1051,7 @@ impl App {
 
     fn restore_host_selection(&mut self) {
         // If we have a stored host ID, try to find it in the current list
-        if let Some(ref stored_host_id) = self.selected_host_id.clone() {
+        if let Some(ref stored_host_id) = self.selected_host_id {
             if let Some(found_index) = self.find_host_index(*stored_host_id) {
                 // Found the stored host, select it
                 self.selected_index = found_index;
@@ -1233,11 +1217,7 @@ impl App {
     pub fn clamp_modal_scroll(&mut self, total_lines: usize, visible_height: usize) {
         self.modal_visible_height = visible_height;
         // Ensure we can always see the last line when scrolled to bottom
-        let max_scroll = if total_lines <= visible_height {
-            0
-        } else {
-            total_lines - visible_height
-        };
+        let max_scroll = total_lines.saturating_sub(visible_height);
         self.modal_scroll_offset = self.modal_scroll_offset.min(max_scroll);
     }
 }

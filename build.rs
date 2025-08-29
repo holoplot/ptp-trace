@@ -43,7 +43,7 @@ pub const BUILD_TIME: &str = "{}";
 fn get_git_version() -> String {
     // Try git describe first (preferred)
     if let Ok(output) = Command::new("git")
-        .args(&["describe", "--tags", "--dirty", "--always"])
+        .args(["describe", "--tags", "--dirty", "--always"])
         .output()
     {
         if output.status.success() {
@@ -67,7 +67,7 @@ fn get_git_version() -> String {
 
     // Fallback to git rev-parse for just commit hash
     if let Ok(output) = Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output()
     {
         if output.status.success() {
@@ -85,7 +85,7 @@ fn get_git_version() -> String {
 
 fn get_git_hash() -> String {
     if let Ok(output) = Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output()
     {
         if output.status.success() {

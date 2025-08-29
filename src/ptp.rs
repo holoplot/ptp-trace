@@ -43,7 +43,7 @@ impl<T> BoundedVec<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PtpHostStateTimeTransmitter {
     pub last_sync_timestamp: Option<Instant>,
     pub priority1: Option<u8>,
@@ -61,27 +61,6 @@ pub struct PtpHostStateTimeTransmitter {
     /// True if this transmitter has been selected as the Best Master Clock in its domain
     /// BMCA winners are displayed as "PTT" (Primary Time Transmitter) in the UI
     pub is_bmca_winner: bool,
-}
-
-impl Default for PtpHostStateTimeTransmitter {
-    fn default() -> Self {
-        PtpHostStateTimeTransmitter {
-            last_sync_timestamp: None,
-            priority1: None,
-            priority2: None,
-            clock_class: None,
-            clock_accuracy: None,
-            steps_removed: None,
-            offset_scaled_log_variance: None,
-            time_source: None,
-            ptt_identifier: None,
-            last_announce_origin_timestamp: None,
-            last_sync_origin_timestamp: None,
-            last_followup_origin_timestamp: None,
-            current_utc_offset: None,
-            is_bmca_winner: false,
-        }
-    }
 }
 
 impl PtpHostStateTimeTransmitter {
@@ -293,17 +272,12 @@ impl PtpHostStateTimeReceiver {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum PtpHostState {
+    #[default]
     Listening,
     TimeTransmitter(PtpHostStateTimeTransmitter),
     TimeReceiver(PtpHostStateTimeReceiver),
-}
-
-impl Default for PtpHostState {
-    fn default() -> Self {
-        PtpHostState::Listening
-    }
 }
 
 impl std::fmt::Display for PtpHostState {
@@ -490,17 +464,11 @@ impl PtpHost {
     }
 
     pub fn is_transmitter(&self) -> bool {
-        match self.state {
-            PtpHostState::TimeTransmitter(_) => true,
-            _ => false,
-        }
+        matches!(self.state, PtpHostState::TimeTransmitter(_))
     }
 
     pub fn is_receiver(&self) -> bool {
-        match self.state {
-            PtpHostState::TimeReceiver(_) => true,
-            _ => false,
-        }
+        matches!(self.state, PtpHostState::TimeReceiver(_))
     }
 
     pub fn time_since_last_seen(&self) -> Duration {
@@ -508,7 +476,7 @@ impl PtpHost {
     }
 
     pub fn add_ip_address(&mut self, ip: IpAddr, interface: String) {
-        self.ip_addresses.entry(ip).or_insert_with(|| Vec::new());
+        self.ip_addresses.entry(ip).or_default();
 
         let v = self.ip_addresses.get_mut(&ip).unwrap();
 
@@ -686,7 +654,7 @@ impl PtpTracker {
                 let domain_senders = self
                     .recent_sync_senders
                     .entry(msg.header.domain_number)
-                    .or_insert_with(Vec::new);
+                    .or_default();
 
                 let now = std::time::Instant::now();
                 if let Some(existing) = domain_senders
@@ -904,7 +872,7 @@ impl PtpTracker {
             {
                 domain_transmitters
                     .entry(domain)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(*clock_id);
             }
         }
