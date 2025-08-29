@@ -1,0 +1,14 @@
+[build.env]
+passthrough = ["DISPLAY", "TZ", "MOCK_ENV"]
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture arm64",
+    "apt-get update && apt-get install -y libpcap-dev:arm64",
+]
+
+[target.armv7-unknown-linux-gnueabihf]
+pre-build = [
+    "dpkg --add-architecture armhf",
+    "apt-get update && apt-get install -y libpcap-dev:armhf",
+]
