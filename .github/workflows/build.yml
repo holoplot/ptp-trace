@@ -24,71 +24,53 @@ jobs:
           sudo apt-get install -y libpcap-dev
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-          profile: minimal
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose
+        run: cargo test --verbose
 
       - name: Check formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   build:
     name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
             artifact_name: ptp-trace
             asset_name: ptp-trace-linux-x86_64
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
             artifact_name: ptp-trace
             asset_name: ptp-trace-linux-aarch64
-          - os: ubuntu-latest
-            target: armv7-unknown-linux-gnueabihf
+          - target: armv7-unknown-linux-gnueabihf
+            os: ubuntu-latest
             artifact_name: ptp-trace
             asset_name: ptp-trace-linux-armv7
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
             artifact_name: ptp-trace.exe
             asset_name: ptp-trace-windows-x86_64.exe
-          - os: macos-latest
-            target: x86_64-apple-darwin
+          - target: x86_64-apple-darwin
+            os: macos-latest
             artifact_name: ptp-trace
             asset_name: ptp-trace-macos-x86_64
-          - os: macos-latest
-            target: aarch64-apple-darwin
+          - target: aarch64-apple-darwin
+            os: macos-latest
             artifact_name: ptp-trace
             asset_name: ptp-trace-macos-aarch64
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
-          profile: minimal
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Install system dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -96,10 +78,36 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpcap-dev
 
+      - name: Install Rust toolchain with target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'armv7-unknown-linux-gnueabihf'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
       - name: Install Npcap SDK (Windows)
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
+          try {
+            # Try to install Npcap runtime first (may fail in CI but worth trying)
+            $npcapUrl = "https://npcap.com/dist/npcap-1.79.exe"
+            $npcapInstaller = "$env:TEMP\npcap-installer.exe"
+            Write-Host "Downloading Npcap installer..."
+            Invoke-WebRequest -Uri $npcapUrl -OutFile $npcapInstaller
+            Write-Host "Installing Npcap (may fail in CI environment)..."
+            $process = Start-Process -FilePath $npcapInstaller -ArgumentList "/S" -Wait -NoNewWindow -PassThru
+            if ($process.ExitCode -eq 0) {
+              Write-Host "Npcap installed successfully"
+            } else {
+              Write-Host "Npcap installation failed (exit code: $($process.ExitCode)), continuing with SDK-only approach"
+            }
+          } catch {
+            Write-Host "Npcap installation failed: $($_.Exception.Message), continuing with SDK-only approach"
+          }
+
           # Download and extract Npcap SDK (required for compilation)
           $sdkUrl = "https://npcap.com/dist/npcap-sdk-1.13.zip"
           $sdkPath = "$env:TEMP\npcap-sdk.zip"
@@ -122,35 +130,24 @@ jobs:
           echo "LIB=C:\npcap-sdk\Lib\x64;$env:LIB" >> $env:GITHUB_ENV
           Write-Host "Environment configured for Npcap development"
 
-      - name: Install cross-compilation dependencies (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Install cross-compilation dependencies (Linux ARM32)
-        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabihf
-
-      - name: Install cross tool
+      - name: Build with cross (ARM targets)
         if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'armv7-unknown-linux-gnueabihf'
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: cross build --release --target ${{ matrix.target }}
 
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: ${{ matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'armv7-unknown-linux-gnueabihf' }}
-          command: build
-          args: --release --target ${{ matrix.target }}
+      - name: Build with cargo (native targets)
+        if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'armv7-unknown-linux-gnueabihf'
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Strip binary (Unix)
         if: matrix.os != 'windows-latest'
         run: |
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            # Install strip tool for ARM64
+            sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
             aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
           elif [[ "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]]; then
+            # Install strip tool for ARM32
+            sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
             arm-linux-gnueabihf-strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
           else
             strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
@@ -170,6 +167,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
