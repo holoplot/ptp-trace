@@ -88,6 +88,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Debug environment
+        run: |
+          echo "=== System Information ==="
+          echo "OS: ${{ matrix.os }}"
+          echo "Target: ${{ matrix.target }}"
+          echo "Use cross: ${{ matrix.use_cross }}"
+          echo "Runner: $(uname -a || systeminfo | head -5)"
+          echo "=========================="
+
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -108,27 +117,52 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          # Create directory
-          New-Item -ItemType Directory -Path "C:\npcap-sdk" -Force
+          try {
+            # Create directory
+            Write-Host "Creating SDK directory..."
+            New-Item -ItemType Directory -Path "C:\npcap-sdk" -Force | Out-Null
 
-          # Download Npcap SDK
-          Write-Host "Downloading Npcap SDK..."
-          Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.13.zip" -OutFile "npcap-sdk.zip" -UseBasicParsing
+            # Download Npcap SDK
+            Write-Host "Downloading Npcap SDK..."
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.13.zip" -OutFile "npcap-sdk.zip" -UseBasicParsing
 
-          # Extract SDK
-          Write-Host "Extracting Npcap SDK..."
-          Expand-Archive -Path "npcap-sdk.zip" -DestinationPath "C:\npcap-sdk" -Force
+            # Extract SDK
+            Write-Host "Extracting Npcap SDK..."
+            Expand-Archive -Path "npcap-sdk.zip" -DestinationPath "C:\npcap-sdk" -Force
 
-          # Set environment variables
-          Write-Host "Setting environment variables..."
-          Add-Content -Path $env:GITHUB_ENV -Value "LIBPCAP_LIBDIR=C:\npcap-sdk\Lib\x64"
-          Add-Content -Path $env:GITHUB_ENV -Value "LIB=C:\npcap-sdk\Lib\x64;$env:LIB"
+            # Find the correct lib directory
+            $libDirs = @("C:\npcap-sdk\Lib\x64", "C:\npcap-sdk\Lib")
+            $libPath = ""
+            foreach ($dir in $libDirs) {
+              if (Test-Path "$dir\wpcap.lib") {
+                $libPath = $dir
+                break
+              }
+            }
 
-          # Verify files exist
-          if (Test-Path "C:\npcap-sdk\Lib\x64\wpcap.lib") {
-            Write-Host "✓ Found wpcap.lib"
-          } else {
-            Write-Host "⚠ wpcap.lib not found"
+            if ($libPath -eq "") {
+              Write-Host "Searching for wpcap.lib in all subdirectories..."
+              $foundLib = Get-ChildItem -Path "C:\npcap-sdk" -Recurse -Name "wpcap.lib" | Select-Object -First 1
+              if ($foundLib) {
+                $libPath = Split-Path -Parent (Join-Path "C:\npcap-sdk" $foundLib)
+                Write-Host "Found wpcap.lib at: $libPath"
+              }
+            }
+
+            if ($libPath -ne "") {
+              # Set environment variables
+              Write-Host "Setting environment variables for: $libPath"
+              "LIBPCAP_LIBDIR=$libPath" | Add-Content -Path $env:GITHUB_ENV
+              "LIB=$libPath;$($env:LIB)" | Add-Content -Path $env:GITHUB_ENV
+              Write-Host "✓ Setup complete"
+            } else {
+              Write-Host "❌ Could not find wpcap.lib"
+              exit 1
+            }
+          } catch {
+            Write-Host "❌ Error during Windows setup: $($_.Exception.Message)"
+            exit 1
           }
 
       # macOS dependencies - libpcap should be available by default
@@ -147,7 +181,14 @@ jobs:
       - name: Install cross-rs for cross-compilation
         if: matrix.use_cross
         run: |
-          cargo install cross --git https://github.com/cross-rs/cross
+          # Install cross-rs with retry logic
+          for i in {1..3}; do
+            if cargo install cross --git https://github.com/cross-rs/cross; then
+              break
+            fi
+            echo "Attempt $i failed, retrying..."
+            sleep 5
+          done
           cross --version
 
       # Build with appropriate method
@@ -161,8 +202,9 @@ jobs:
       - name: Build with cross
         if: matrix.use_cross
         run: |
-          cross build --release --target ${{ matrix.target }}
-          ls -la target/${{ matrix.target }}/release/
+          # Build with cross-rs with verbose output
+          cross build --release --target ${{ matrix.target }} --verbose
+          ls -la target/${{ matrix.target }}/release/ || echo "Target directory not found"
 
       - name: Strip binary (Unix)
         if: matrix.os != 'windows-latest'
