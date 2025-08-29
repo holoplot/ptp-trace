@@ -18,6 +18,26 @@ chrono = { version = "0.4", features = ["serde"] }
 pcap = "1.1"
 libc = "0.2"
 
+# Windows-specific dependencies for Npcap/WinPcap support
+[target.'cfg(windows)'.dependencies]
+# Additional Windows-specific dependencies can be added here if needed
+
+# Platform-specific build configuration
+[package.metadata.cross.target.x86_64-pc-windows-msvc]
+pre-build = []
+
+[package.metadata.cross.target.aarch64-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture arm64",
+    "apt-get update && apt-get install -y libpcap-dev:arm64 pkg-config",
+]
+
+[package.metadata.cross.target.armv7-unknown-linux-gnueabihf]
+pre-build = [
+    "dpkg --add-architecture armhf",
+    "apt-get update && apt-get install -y libpcap-dev:armhf pkg-config",
+]
+
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
