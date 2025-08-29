@@ -5,10 +5,12 @@ passthrough = ["DISPLAY", "TZ", "MOCK_ENV"]
 pre-build = [
     "dpkg --add-architecture arm64",
     "apt-get update && apt-get install -y libpcap-dev:arm64",
+    "rm -f /usr/lib/aarch64-linux-gnu/libpcap.so.0.8",
 ]
 
 [target.armv7-unknown-linux-gnueabihf]
 pre-build = [
     "dpkg --add-architecture armhf",
     "apt-get update && apt-get install -y libpcap-dev:armhf",
+    "rm -f /usr/lib/arm-linux-gnueabihf/libpcap.so.0.8",
 ]
