@@ -91,23 +91,6 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          try {
-            # Try to install Npcap runtime first (may fail in CI but worth trying)
-            $npcapUrl = "https://npcap.com/dist/npcap-1.79.exe"
-            $npcapInstaller = "$env:TEMP\npcap-installer.exe"
-            Write-Host "Downloading Npcap installer..."
-            Invoke-WebRequest -Uri $npcapUrl -OutFile $npcapInstaller
-            Write-Host "Installing Npcap (may fail in CI environment)..."
-            $process = Start-Process -FilePath $npcapInstaller -ArgumentList "/S" -Wait -NoNewWindow -PassThru
-            if ($process.ExitCode -eq 0) {
-              Write-Host "Npcap installed successfully"
-            } else {
-              Write-Host "Npcap installation failed (exit code: $($process.ExitCode)), continuing with SDK-only approach"
-            }
-          } catch {
-            Write-Host "Npcap installation failed: $($_.Exception.Message), continuing with SDK-only approach"
-          }
-
           # Download and extract Npcap SDK (required for compilation)
           $sdkUrl = "https://npcap.com/dist/npcap-sdk-1.13.zip"
           $sdkPath = "$env:TEMP\npcap-sdk.zip"
