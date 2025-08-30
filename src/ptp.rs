@@ -1,47 +1,21 @@
 use anyhow::Result;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     net::IpAddr,
     time::{Duration, Instant},
 };
 
-use crate::types::{
-    AnnounceMessage, ClockIdentity, DelayRespMessage, FollowUpMessage, PDelayRespFollowUpMessage,
-    PDelayRespMessage, ProcessedPacket, PtpClockAccuracy, PtpClockClass, PtpCorrectionField,
-    PtpHeader, PtpMessage, PtpTimestamp, PtpUtcOffset, PtpVersion, SyncMessage,
+use crate::{
+    bounded_vec::BoundedVec,
+    types::{
+        AnnounceMessage, ClockIdentity, DelayRespMessage, FollowUpMessage,
+        PDelayRespFollowUpMessage, PDelayRespMessage, ProcessedPacket, PtpClockAccuracy,
+        PtpClockClass, PtpCorrectionField, PtpHeader, PtpMessage, PtpTimestamp, PtpUtcOffset,
+        PtpVersion, SyncMessage,
+    },
 };
+
 use std::rc::Rc;
-
-/// A deque that maintains a maximum capacity by removing oldest elements
-#[derive(Debug, Clone)]
-pub struct BoundedVec<T> {
-    items: VecDeque<T>,
-    max_size: usize,
-}
-
-impl<T> BoundedVec<T> {
-    fn new(max_size: usize) -> Self {
-        Self {
-            items: VecDeque::new(),
-            max_size,
-        }
-    }
-
-    fn push(&mut self, item: T) {
-        self.items.push_back(item);
-        if self.items.len() > self.max_size {
-            self.items.pop_front();
-        }
-    }
-
-    fn clear(&mut self) {
-        self.items.clear();
-    }
-
-    fn len(&self) -> usize {
-        self.items.len()
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct PtpHostStateTimeTransmitter {
