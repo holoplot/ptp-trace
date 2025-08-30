@@ -19,6 +19,7 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 ### 🌐 **Network Monitoring**
 - 🔍 Automatic PTP host discovery on port 319 and 320
 - 📡 **Cross-platform packet capture** - Uses libpcap/pcap for promiscuous mode on Linux, macOS, and Windows
+- 📄 **PCAP file support** - Read and analyze PTP packets from captured pcap files (offline analysis mode)
 - 🌐 **Multicast group membership** - Ensures network interfaces receive multicast PTP traffic
 - 🔍 **Full packet analysis** - Records both raw packet data and parsed PTP content
 - 🎯 **Smart interface selection** - Automatically filters virtual interfaces while supporting manual override
@@ -28,6 +29,7 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - 📊 Primary Time Transmitter marked with "PTT" indicator
 - 📈 Network statistics and quality metrics
 - 🕐 Timing relationship tracking
+- ⏸️ **Time reference modes** - Live network uses current system time; pcap mode uses last packet timestamp as reference
 - 🌳 **Tree view mode** - Hierarchical display showing transmitter-receiver relationships with proper indentation and PTT (Primary Time Transmitter) indicators
 - 🌳 Visual hierarchy mapping of transmitter-receiver relationships
 - 🏷️ **VLAN support** - Detects and displays VLAN tags in PTP packets
@@ -45,6 +47,23 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - 🎨 Color-coded message types (ANNOUNCE, SYNC, DELAY_REQ, PDELAY_REQ, etc.)
 - 🌐 **Interface-aware capture** - Tracks which interface each packet was received on
 
+## 📄 PCAP File Analysis
+
+PTP Trace supports offline analysis of PTP traffic from pcap files in offline mode.
+
+### Creating PCAP Files:
+```bash
+# Capture PTP traffic with tcpdump (Linux/macOS)
+sudo tcpdump -i eth0 -w ptp_capture.pcap 'udp port 319 or udp port 320'
+
+# Capture with Wireshark (all platforms)
+# Filter: udp.port == 319 or udp.port == 320
+# Save as: ptp_capture.pcap
+
+# Analyze the captured file
+./target/release/ptp-trace --pcap-file ptp_capture.pcap
+```
+
 ## Demo
 
 ![Demo](demo.gif)
@@ -53,7 +72,7 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 
 ### 📋 Prerequisites
 - 🦀 Rust 1.70.0 or later
-- 🔧 **Administrator privileges required** - Needed for promiscuous mode packet capture
+- 🔧 **Administrator privileges required** - Needed for promiscuous mode packet capture (in live capture mode)
 - 🌐 Network interfaces with PTP traffic (ports 319/320)
 - 📦 **Platform-specific requirements**:
   - **Linux**: libpcap-dev (`sudo apt install libpcap-dev`)
@@ -77,6 +96,9 @@ sudo ./target/release/ptp-trace
 ### ⚙️ Command Line Options
 
 ```bash
+# 📄 Analyze packets from pcap file (offline mode, no admin privileges needed)
+./target/release/ptp-trace --pcap-file capture.pcap
+
 # 🌐 Monitor specific interface (requires root)
 sudo ./target/release/ptp-trace --interface eth0
 
@@ -97,11 +119,16 @@ sudo ./target/release/ptp-trace --update-interval 500
 # 🎨 Use Matrix theme
 sudo ./target/release/ptp-trace --theme matrix
 
+# 📄 Analyze pcap file with custom theme and faster updates
+./target/release/ptp-trace --pcap-file capture.pcap --theme matrix --update-interval 250
+
 # 🐛 Enable debug mode
 sudo ./target/release/ptp-trace --debug
 
-# 🔧 Combine options
+# 🔧 Combine options for live monitoring
 sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix --update-interval 500
+
+# Note: --interface and --pcap-file options are mutually exclusive
 ```
 
 ## 🎮 Controls
@@ -146,10 +173,11 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 
 ### 🗺️ **Future Roadmap**
 - 📤 **Data export** - JSON, PCAP output formats for raw packet data
-- 🔍 **Advanced filtering** - Search and filter capabilities
+- 🔍 **Advanced filtering** - Search and filter capabilities for both live and pcap modes
 - 📊 **Enhanced analytics** - Statistical analysis of timing data
 - 🔧 **Configuration management** - Save/load application settings
 - 📦 **Packet inspection tools** - Hex dump viewer for raw packet analysis
+- 🎬 **PCAP enhancements** - Playback controls, time range selection, and analysis reports
 
 ## 🛠️ Development
 

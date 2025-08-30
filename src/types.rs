@@ -1070,7 +1070,7 @@ impl Display for PtpMessage {
 #[derive(Debug, Clone)]
 pub struct ParsedPacket {
     pub ptp: PtpMessage,
-    pub raw: std::sync::Arc<crate::socket::RawPacket>,
+    pub raw: std::sync::Arc<crate::source::RawPacket>,
 }
 
 #[test]

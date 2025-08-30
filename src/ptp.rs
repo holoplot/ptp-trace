@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::{
     collections::HashMap,
     net::IpAddr,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use crate::{
@@ -378,7 +378,7 @@ pub struct PtpHost {
     pub ip_addresses: HashMap<IpAddr, Vec<String>>,
     pub domain_number: Option<u8>,
     pub last_version: Option<PtpVersion>,
-    pub last_seen: Instant,
+    pub last_seen: SystemTime,
 
     pub announce_count: u32,
     pub sync_count: u32,
@@ -404,7 +404,7 @@ impl PtpHost {
             clock_identity,
             ip_addresses: HashMap::new(),
             domain_number: None,
-            last_seen: Instant::now(),
+            last_seen: SystemTime::now(),
 
             announce_count: 0,
             sync_count: 0,
@@ -430,7 +430,7 @@ impl PtpHost {
         self.domain_number = Some(header.domain_number);
         self.last_version = Some(header.version);
         self.last_correction_field = Some(header.correction_field);
-        self.last_seen = Instant::now();
+        self.last_seen = SystemTime::now();
     }
 
     pub fn get_vendor_name(&self) -> Option<&'static str> {
@@ -445,8 +445,9 @@ impl PtpHost {
         matches!(self.state, PtpHostState::TimeReceiver(_))
     }
 
-    pub fn time_since_last_seen(&self) -> Duration {
-        Instant::now().duration_since(self.last_seen)
+    pub fn time_since_last_seen(&self, reference_time: Option<SystemTime>) -> Duration {
+        let reference = reference_time.unwrap_or_else(|| SystemTime::now());
+        reference.duration_since(self.last_seen).unwrap_or_default()
     }
 
     pub fn add_ip_address(&mut self, ip: IpAddr, interface: String) {
@@ -542,7 +543,7 @@ mod tests {
 pub struct PtpTracker {
     hosts: HashMap<ClockIdentity, PtpHost>,
     last_packet: Instant,
-    raw_socket_receiver: crate::socket::RawSocketReceiver,
+    pub raw_socket_receiver: crate::source::RawSocketReceiver,
     // Track recent sync/follow-up senders per domain for transmitter-receiver correlation
     recent_sync_senders: HashMap<u8, Vec<(ClockIdentity, Instant)>>,
     // Track interfaces for determining inbound interface of packets
@@ -550,7 +551,7 @@ pub struct PtpTracker {
 }
 
 impl PtpTracker {
-    pub fn new(raw_socket_receiver: crate::socket::RawSocketReceiver) -> Result<Self> {
+    pub fn new(raw_socket_receiver: crate::source::RawSocketReceiver) -> Result<Self> {
         let interfaces = raw_socket_receiver.get_interfaces().to_vec();
         Ok(Self {
             hosts: HashMap::new(),
@@ -585,7 +586,7 @@ impl PtpTracker {
         }
     }
 
-    async fn handle_raw_packet(&mut self, raw_packet: std::sync::Arc<crate::socket::RawPacket>) {
+    async fn handle_raw_packet(&mut self, raw_packet: std::sync::Arc<crate::source::RawPacket>) {
         let msg = match PtpMessage::try_from(raw_packet.ptp_payload.as_slice()) {
             Ok(m) => m,
             Err(_) => return, // Invalid message
@@ -610,6 +611,8 @@ impl PtpTracker {
 
         sending_host.total_messages_sent_count += 1;
         sending_host.update_from_ptp_header(msg.header());
+        // Update last_seen with packet timestamp
+        sending_host.last_seen = raw_packet.timestamp;
 
         match msg {
             PtpMessage::Announce(msg) => {
@@ -807,7 +810,7 @@ impl PtpTracker {
         }
     }
 
-    pub fn get_local_ips(&self) -> Vec<std::net::IpAddr> {
+    pub fn get_local_ips(&self) -> Vec<IpAddr> {
         self.interfaces
             .iter()
             .map(|(_, ip)| std::net::IpAddr::V4(*ip))

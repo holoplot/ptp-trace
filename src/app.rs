@@ -134,7 +134,7 @@ impl App {
         update_interval: Duration,
         debug: bool,
         theme_name: crate::themes::ThemeName,
-        raw_socket_receiver: crate::socket::RawSocketReceiver,
+        raw_socket_receiver: crate::source::RawSocketReceiver,
     ) -> Result<Self> {
         let ptp_tracker = PtpTracker::new(raw_socket_receiver)?;
         let theme = crate::themes::Theme::new(theme_name);
@@ -1185,6 +1185,10 @@ impl App {
 
     pub fn get_modal_packet(&self) -> Option<&ParsedPacket> {
         self.modal_packet.as_ref()
+    }
+
+    pub fn get_reference_timestamp(&self) -> Option<std::time::SystemTime> {
+        self.ptp_tracker.raw_socket_receiver.get_last_timestamp()
     }
 
     fn scroll_modal_up(&mut self) {

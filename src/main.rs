@@ -6,7 +6,7 @@ mod app;
 mod bounded_vec;
 mod oui_map;
 mod ptp;
-mod socket;
+mod source;
 mod themes;
 mod types;
 mod ui;
@@ -52,8 +52,12 @@ pub struct Cli {
     command: Option<Commands>,
 
     /// Network interface(s) to monitor. Can be specified multiple times. If not specified, monitors all interfaces.
-    #[arg(short, long)]
+    #[arg(short, long, conflicts_with = "pcap_file")]
     interface: Vec<String>,
+
+    /// Read packets from a pcap file instead of network interfaces. In pcap mode, timestamps are shown relative to the last packet in the file
+    #[arg(short = 'f', long, value_name = "FILE", conflicts_with = "interface")]
+    pcap_file: Option<String>,
 
     /// Update interval in milliseconds
     #[arg(short, long, default_value = "1000")]
@@ -93,8 +97,12 @@ async fn main() -> Result<()> {
         ThemeName::Default
     });
 
-    // Create raw socket receiver early to fail fast if network setup is problematic
-    let raw_socket_receiver = socket::create(&cli.interface).await?;
+    // Create packet source (either from network interfaces or pcap file)
+    let raw_socket_receiver = if let Some(pcap_path) = &cli.pcap_file {
+        source::create_pcap(pcap_path).await?
+    } else {
+        source::create_socket(&cli.interface).await?
+    };
 
     // Initialize the application
     let update_interval = Duration::from_millis(cli.update_interval);

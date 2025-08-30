@@ -30,19 +30,55 @@ pub struct RawPacket {
     pub ptp_payload: Vec<u8>,
 }
 
+pub enum PacketSource {
+    Socket {
+        receiver: mpsc::UnboundedReceiver<RawPacket>,
+        interfaces: Vec<(String, Ipv4Addr)>,
+        _multicast_sockets: Vec<Socket>,
+    },
+    Pcap {
+        packets: Vec<RawPacket>,
+        current_index: usize,
+        last_timestamp: Option<SystemTime>,
+    },
+}
+
 pub struct RawSocketReceiver {
-    pub receiver: mpsc::UnboundedReceiver<RawPacket>,
-    pub interfaces: Vec<(String, Ipv4Addr)>,
-    pub _multicast_sockets: Vec<Socket>,
+    source: PacketSource,
 }
 
 impl RawSocketReceiver {
     pub fn try_recv(&mut self) -> Option<RawPacket> {
-        self.receiver.try_recv().ok()
+        match &mut self.source {
+            PacketSource::Socket { receiver, .. } => receiver.try_recv().ok(),
+            PacketSource::Pcap {
+                packets,
+                current_index,
+                ..
+            } => {
+                if *current_index < packets.len() {
+                    let packet = packets[*current_index].clone();
+                    *current_index += 1;
+                    Some(packet)
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     pub fn get_interfaces(&self) -> &[(String, Ipv4Addr)] {
-        &self.interfaces
+        match &self.source {
+            PacketSource::Socket { interfaces, .. } => interfaces,
+            PacketSource::Pcap { .. } => &[],
+        }
+    }
+
+    pub fn get_last_timestamp(&self) -> Option<SystemTime> {
+        match &self.source {
+            PacketSource::Socket { .. } => None,
+            PacketSource::Pcap { last_timestamp, .. } => *last_timestamp,
+        }
     }
 }
 
@@ -352,7 +388,7 @@ async fn capture_on_interface(
     Ok(())
 }
 
-pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
+pub async fn create_socket(ifnames: &[String]) -> Result<RawSocketReceiver> {
     // Get interfaces to monitor
     let target_interfaces = if ifnames.is_empty() {
         // Default to all available interfaces
@@ -423,8 +459,49 @@ pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
     );
 
     Ok(RawSocketReceiver {
-        receiver,
-        interfaces: target_interfaces,
-        _multicast_sockets: multicast_sockets,
+        source: PacketSource::Socket {
+            receiver,
+            interfaces: target_interfaces,
+            _multicast_sockets: multicast_sockets,
+        },
+    })
+}
+
+pub async fn create_pcap(pcap_path: &str) -> Result<RawSocketReceiver> {
+    use pcap::Capture;
+
+    // Open pcap file
+    let mut cap = Capture::from_file(pcap_path)?;
+
+    let mut packets = Vec::new();
+    let mut last_timestamp: Option<SystemTime> = None;
+
+    // Read all packets from pcap file
+    while let Ok(packet) = cap.next_packet() {
+        if let Some(raw_packet) = process_ethernet_packet(&packet, "pcap") {
+            // Track the latest timestamp for reference
+            if last_timestamp.is_none() || raw_packet.timestamp > last_timestamp.unwrap() {
+                last_timestamp = Some(raw_packet.timestamp);
+            }
+            packets.push(raw_packet);
+        }
+    }
+
+    println!(
+        "Loaded {} PTP packets from pcap file: {}",
+        packets.len(),
+        pcap_path
+    );
+
+    if let Some(last_ts) = last_timestamp {
+        println!("Last packet timestamp: {:?}", last_ts);
+    }
+
+    Ok(RawSocketReceiver {
+        source: PacketSource::Pcap {
+            packets,
+            current_index: 0,
+            last_timestamp,
+        },
     })
 }

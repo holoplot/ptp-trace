@@ -49,10 +49,12 @@ fn create_host_row<'a>(
     theme: &crate::themes::Theme,
     local_ips: &[std::net::IpAddr],
     is_primary_transmitter: Option<bool>,
+    app: &App,
 ) -> Row<'a> {
     let state_color = theme.get_state_color(&host.state);
 
-    let time_since_last_seen = host.time_since_last_seen();
+    let reference_timestamp = app.get_reference_timestamp();
+    let time_since_last_seen = host.time_since_last_seen(reference_timestamp);
     let last_seen_str = if time_since_last_seen.as_secs() < 60 {
         format!("{}s", time_since_last_seen.as_secs())
     } else {
@@ -398,6 +400,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                     theme,
                     &local_ips,
                     Some(node.is_primary_transmitter),
+                    app,
                 )
             })
             .collect();
@@ -430,6 +433,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                     theme,
                     &local_ips,
                     None,
+                    app,
                 )
             })
             .collect();
@@ -652,7 +656,11 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                 ),
                 create_aligned_field(
                     "Last Seen: ",
-                    format!("{:.1}s ago", host.time_since_last_seen().as_secs_f64()),
+                    format!(
+                        "{:.1}s ago",
+                        host.time_since_last_seen(app.get_reference_timestamp())
+                            .as_secs_f64()
+                    ),
                     LABEL_WIDTH,
                     theme,
                 ),
@@ -1027,9 +1035,12 @@ fn render_scrollbar(
     }
 }
 
-fn format_instant(system_time: std::time::SystemTime) -> String {
-    let now = std::time::SystemTime::now();
-    let elapsed = now.duration_since(system_time).unwrap_or_default();
+fn format_instant(
+    system_time: std::time::SystemTime,
+    reference_time: Option<std::time::SystemTime>,
+) -> String {
+    let reference = reference_time.unwrap_or_else(|| std::time::SystemTime::now());
+    let elapsed = reference.duration_since(system_time).unwrap_or_default();
 
     let elapsed_str = if elapsed.as_secs() < 1 {
         format!("{}ms", elapsed.as_millis())
@@ -1181,7 +1192,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         .iter()
         .enumerate()
         .map(|(i, packet)| {
-            let time_str = format_instant(packet.raw.timestamp);
+            let time_str = format_instant(packet.raw.timestamp, app.get_reference_timestamp());
             let header = packet.ptp.header();
 
             let row_style =
@@ -1320,7 +1331,7 @@ fn render_packet_details_with_hexdump(
     app: &mut App,
 ) {
     let header = packet.ptp.header();
-    let time_str = format_instant(packet.raw.timestamp);
+    let time_str = format_instant(packet.raw.timestamp, app.get_reference_timestamp());
 
     // Define the width for label alignment (same as host details)
     const LABEL_WIDTH: usize = 30;
