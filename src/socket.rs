@@ -29,7 +29,6 @@ pub struct RawPacket {
 
 pub struct RawSocketReceiver {
     pub receiver: mpsc::UnboundedReceiver<RawPacket>,
-    pub _handles: Vec<tokio::task::JoinHandle<()>>,
     pub interfaces: Vec<(String, Ipv4Addr)>,
     pub _multicast_sockets: Vec<Socket>,
 }
@@ -384,13 +383,12 @@ pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
     }
 
     let (sender, receiver) = mpsc::unbounded_channel();
-    let mut handles = Vec::new();
 
     // Start packet capture on each interface
     for (interface_name, _) in &target_interfaces {
         let sender_clone = sender.clone();
         let interface_name_clone = interface_name.clone();
-        let handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             // Stagger startup to reduce resource contention
             tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -398,7 +396,6 @@ pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
                 eprintln!("Packet capture error on {}: {}", interface_name_clone, e);
             }
         });
-        handles.push(handle);
     }
 
     println!(
@@ -415,7 +412,6 @@ pub async fn create(ifnames: &[String]) -> Result<RawSocketReceiver> {
 
     Ok(RawSocketReceiver {
         receiver,
-        _handles: handles,
         interfaces: target_interfaces,
         _multicast_sockets: multicast_sockets,
     })
