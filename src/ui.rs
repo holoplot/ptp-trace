@@ -1470,18 +1470,17 @@ fn render_packet_details_with_hexdump(
     // Add all flag details
     let flag_details = header.flags.details();
     for (flag_name, flag_value) in flag_details.iter() {
-        let value_color = if *flag_value {
-            theme.confidence_high // Green for true
-        } else {
-            theme.confidence_low // Red for false
-        };
+        let mut style = Style::default().fg(theme.text_primary);
+        if *flag_value {
+            style = style.add_modifier(Modifier::BOLD);
+        }
 
         all_lines.push(Line::from(vec![
             Span::styled(
                 format!("{:width$}", format!("{}:", flag_name), width = LABEL_WIDTH),
                 Style::default().fg(theme.text_secondary),
             ),
-            Span::styled(flag_value.to_string(), Style::default().fg(value_color)),
+            Span::styled(flag_value.to_string(), style),
         ]));
     }
 
