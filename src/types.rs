@@ -351,11 +351,7 @@ impl PtpUtcOffset {
 
 impl Display for PtpUtcOffset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.offset >= 0 {
-            write!(f, "+{}s", self.offset)
-        } else {
-            write!(f, "{}s", self.offset)
-        }
+        write!(f, "{:+}s", self.offset)
     }
 }
 
@@ -413,12 +409,12 @@ impl Display for PtpCorrectionField {
 
         if ns == 0.0 {
             write!(f, "0")
-        } else if ns < 1000.0 {
-            write!(f, "{:.2} ns", ns)
-        } else if ns < 1000000.0 {
-            write!(f, "{:.03} μs", ns / 1000.0)
+        } else if ns.abs() < 1000.0 {
+            write!(f, "{:+.2} ns", ns)
+        } else if ns.abs() < 1000000.0 {
+            write!(f, "{:+.03} μs", ns / 1000.0)
         } else {
-            write!(f, "{:.03} s", ns / 1000000000.0)
+            write!(f, "{:+.03} s", ns / 1000000000.0)
         }
     }
 }
