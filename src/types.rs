@@ -1077,7 +1077,7 @@ pub struct ProcessedPacket {
     pub dest_mac: [u8; 6],
     pub vlan_id: Option<u16>,
     pub interface: String,
-    pub _raw_packet_data: Vec<u8>,
+    pub raw_packet_data: Vec<u8>,
 }
 
 #[test]

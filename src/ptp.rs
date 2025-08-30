@@ -600,7 +600,7 @@ impl PtpTracker {
             dest_addr: raw_packet.dest_addr,
             dest_mac: raw_packet.dest_mac,
             interface: raw_packet.interface_name.clone(),
-            _raw_packet_data: raw_packet.data.clone(),
+            raw_packet_data: raw_packet.data.clone(),
         });
 
         let sending_host = self

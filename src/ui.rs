@@ -1485,7 +1485,7 @@ fn render_packet_details_with_hexdump(
     }
 
     // Add hexdump section at the end
-    let raw_data = &packet._raw_packet_data;
+    let raw_data = &packet.raw_packet_data;
     all_lines.extend(vec![
         Line::from(""),
         Line::from(vec![
