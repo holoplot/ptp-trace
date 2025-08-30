@@ -14,7 +14,7 @@ use std::{
 };
 use tokio::time;
 
-use crate::types::{ClockIdentity, ProcessedPacket};
+use crate::types::{ClockIdentity, ParsedPacket};
 
 use crate::{
     ptp::{PtpHost, PtpHostState, PtpTracker},
@@ -123,7 +123,7 @@ pub struct App {
     pub auto_scroll_packets: bool,
     pub visible_packet_height: usize,
     pub show_packet_modal: bool,
-    pub modal_packet: Option<ProcessedPacket>,
+    pub modal_packet: Option<ParsedPacket>,
     pub modal_scroll_offset: usize,
     pub modal_visible_height: usize,
     pub force_redraw: bool,
@@ -984,7 +984,7 @@ impl App {
         self.sort_ascending
     }
 
-    pub fn get_packet_history(&self) -> Vec<ProcessedPacket> {
+    pub fn get_packet_history(&self) -> Vec<ParsedPacket> {
         // Return packets from the currently selected host
         if let Some(ref selected_host_id) = self.selected_host_id {
             if let Some(history) = self.ptp_tracker.get_host_packet_history(*selected_host_id) {
@@ -1174,7 +1174,7 @@ impl App {
         self.visible_packet_height = height;
     }
 
-    pub fn get_selected_packet(&self) -> Option<ProcessedPacket> {
+    pub fn get_selected_packet(&self) -> Option<ParsedPacket> {
         let packets = self.get_packet_history();
         if self.selected_packet_index < packets.len() {
             Some(packets[self.selected_packet_index].clone())
@@ -1183,7 +1183,7 @@ impl App {
         }
     }
 
-    pub fn get_modal_packet(&self) -> Option<&ProcessedPacket> {
+    pub fn get_modal_packet(&self) -> Option<&ParsedPacket> {
         self.modal_packet.as_ref()
     }
 

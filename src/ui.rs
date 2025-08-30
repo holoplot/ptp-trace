@@ -9,7 +9,7 @@ use ratatui::{
 use crate::{
     app::{ActiveView, App, SortColumn, TreeNode},
     ptp::{PtpHost, PtpHostState},
-    types::{format_timestamp, ProcessedPacket, PtpClockAccuracy, PtpClockClass},
+    types::{format_timestamp, ParsedPacket, PtpClockAccuracy, PtpClockClass},
     version,
 };
 
@@ -1027,8 +1027,9 @@ fn render_scrollbar(
     }
 }
 
-fn format_instant(instant: std::time::Instant) -> String {
-    let elapsed = instant.elapsed();
+fn format_instant(system_time: std::time::SystemTime) -> String {
+    let now = std::time::SystemTime::now();
+    let elapsed = now.duration_since(system_time).unwrap_or_default();
 
     let elapsed_str = if elapsed.as_secs() < 1 {
         format!("{}ms", elapsed.as_millis())
@@ -1180,8 +1181,8 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         .iter()
         .enumerate()
         .map(|(i, packet)| {
-            let time_str = format_instant(packet.timestamp);
-            let header = packet.ptp_message.header();
+            let time_str = format_instant(packet.raw.timestamp);
+            let header = packet.ptp.header();
 
             let row_style =
                 if matches!(app.active_view, ActiveView::PacketHistory) && i == selected_in_view {
@@ -1194,19 +1195,19 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
 
             Row::new(vec![
                 Cell::from(time_str),
-                Cell::from(match packet.vlan_id {
+                Cell::from(match packet.raw.vlan_id {
                     Some(id) => id.to_string(),
                     None => "-".to_string(),
                 }),
-                Cell::from(match packet.source_addr {
+                Cell::from(match packet.raw.source_addr {
                     std::net::SocketAddr::V4(a) => a.ip().to_string(),
                     _ => "-".to_string(),
                 }),
-                Cell::from(match packet.source_addr {
+                Cell::from(match packet.raw.source_addr {
                     std::net::SocketAddr::V4(a) => a.port().to_string(),
                     _ => "-".to_string(),
                 }),
-                Cell::from(packet.interface.clone()),
+                Cell::from(packet.raw.interface_name.clone()),
                 Cell::from(header.version.to_string()),
                 Cell::from(Span::styled(
                     header.message_type.to_string(),
@@ -1218,7 +1219,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(header.flags.short()),
                 Cell::from(header.correction_field.to_string()),
                 Cell::from(header.log_message_interval.to_string()),
-                Cell::from(packet.ptp_message.to_string()),
+                Cell::from(packet.ptp.to_string()),
             ])
             .style(row_style)
         })
@@ -1290,7 +1291,7 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
         // Modal title
         let title = format!(
             "Packet Details - Seq {} (ESC to close)",
-            packet.ptp_message.header().sequence_id
+            packet.ptp.header().sequence_id
         );
 
         // Get theme reference before mutable operations
@@ -1314,12 +1315,12 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
 fn render_packet_details_with_hexdump(
     f: &mut Frame,
     area: Rect,
-    packet: &ProcessedPacket,
+    packet: &ParsedPacket,
     theme: &crate::themes::Theme,
     app: &mut App,
 ) {
-    let header = packet.ptp_message.header();
-    let time_str = format_instant(packet.timestamp);
+    let header = packet.ptp.header();
+    let time_str = format_instant(packet.raw.timestamp);
 
     // Define the width for label alignment (same as host details)
     const LABEL_WIDTH: usize = 30;
@@ -1336,7 +1337,7 @@ fn render_packet_details_with_hexdump(
         )]),
         create_aligned_field(
             "Source Address:",
-            packet.source_addr.to_string(),
+            packet.raw.source_addr.to_string(),
             LABEL_WIDTH,
             theme,
         ),
@@ -1344,19 +1345,19 @@ fn render_packet_details_with_hexdump(
             "Source MAC:",
             format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                packet.source_mac[0],
-                packet.source_mac[1],
-                packet.source_mac[2],
-                packet.source_mac[3],
-                packet.source_mac[4],
-                packet.source_mac[5]
+                packet.raw.source_mac[0],
+                packet.raw.source_mac[1],
+                packet.raw.source_mac[2],
+                packet.raw.source_mac[3],
+                packet.raw.source_mac[4],
+                packet.raw.source_mac[5]
             ),
             LABEL_WIDTH,
             theme,
         ),
         create_aligned_field(
             "Dest Address:",
-            packet.dest_addr.to_string(),
+            packet.raw.dest_addr.to_string(),
             LABEL_WIDTH,
             theme,
         ),
@@ -1364,20 +1365,28 @@ fn render_packet_details_with_hexdump(
             "Dest MAC:",
             format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                packet.dest_mac[0],
-                packet.dest_mac[1],
-                packet.dest_mac[2],
-                packet.dest_mac[3],
-                packet.dest_mac[4],
-                packet.dest_mac[5]
+                packet.raw.dest_mac[0],
+                packet.raw.dest_mac[1],
+                packet.raw.dest_mac[2],
+                packet.raw.dest_mac[3],
+                packet.raw.dest_mac[4],
+                packet.raw.dest_mac[5]
             ),
             LABEL_WIDTH,
             theme,
         ),
-        create_aligned_field("Interface:", packet.interface.clone(), LABEL_WIDTH, theme),
+        create_aligned_field(
+            "Interface:",
+            packet.raw.interface_name.clone(),
+            LABEL_WIDTH,
+            theme,
+        ),
         create_aligned_field(
             "VLAN ID:",
-            packet.vlan_id.map_or("-".to_string(), |id| id.to_string()),
+            packet
+                .raw
+                .vlan_id
+                .map_or("-".to_string(), |id| id.to_string()),
             LABEL_WIDTH,
             theme,
         ),
@@ -1443,7 +1452,7 @@ fn render_packet_details_with_hexdump(
     ];
 
     // Add detailed message fields
-    let message_details = packet.ptp_message.details();
+    let message_details = packet.ptp.details();
     if !message_details.is_empty() {
         for (field_name, field_value) in message_details.iter() {
             all_lines.push(Line::from(vec![
@@ -1485,7 +1494,7 @@ fn render_packet_details_with_hexdump(
     }
 
     // Add hexdump section at the end
-    let raw_data = &packet.raw_packet_data;
+    let raw_data = &packet.raw.data;
     all_lines.extend(vec![
         Line::from(""),
         Line::from(vec![

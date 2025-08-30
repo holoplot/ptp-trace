@@ -4,10 +4,12 @@
 //! promiscuous mode support. Works on Linux, macOS, and Windows.
 
 use anyhow::Result;
-use pcap::{Capture, Device, Linktype};
+use libc::timeval;
+use pcap::{Capture, Device, Linktype, Packet};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 
@@ -17,6 +19,7 @@ const PTP_MULTICAST_ADDR: &str = "224.0.1.129";
 
 #[derive(Debug, Clone)]
 pub struct RawPacket {
+    pub timestamp: std::time::SystemTime,
     pub data: Vec<u8>,
     pub source_addr: std::net::SocketAddr,
     pub source_mac: [u8; 6],
@@ -155,7 +158,15 @@ fn join_multicast_group(interface_name: &str, interface_addr: Ipv4Addr) -> Resul
     Ok(socket)
 }
 
-fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<RawPacket> {
+fn timeval_to_systemtime(tv: timeval) -> SystemTime {
+    // tv_sec is seconds since epoch, tv_usec is microseconds
+    let dur = Duration::new(tv.tv_sec as u64, (tv.tv_usec as u32) * 1000);
+    UNIX_EPOCH + dur
+}
+
+fn process_ethernet_packet(packet: &Packet, interface_name: &str) -> Option<RawPacket> {
+    let packet_data = packet.data;
+
     // Minimum Ethernet frame size check
     if packet_data.len() < 14 {
         return None;
@@ -251,6 +262,7 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
     let dest_addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(dest_ip, dest_port));
 
     Some(RawPacket {
+        timestamp: timeval_to_systemtime(packet.header.ts),
         data: packet_data.to_vec(),
         source_addr,
         source_mac,
@@ -315,7 +327,7 @@ async fn capture_on_interface(
     loop {
         match cap.next_packet() {
             Ok(packet) => {
-                if let Some(raw_packet) = process_ethernet_packet(packet.data, &interface_name) {
+                if let Some(raw_packet) = process_ethernet_packet(&packet, &interface_name) {
                     if sender.send(raw_packet).is_err() {
                         // Receiver has been dropped, exit the loop
                         break;

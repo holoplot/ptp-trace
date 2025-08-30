@@ -1068,16 +1068,9 @@ impl Display for PtpMessage {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProcessedPacket {
-    pub ptp_message: PtpMessage,
-    pub timestamp: std::time::Instant,
-    pub source_addr: std::net::SocketAddr,
-    pub source_mac: [u8; 6],
-    pub dest_addr: std::net::SocketAddr,
-    pub dest_mac: [u8; 6],
-    pub vlan_id: Option<u16>,
-    pub interface: String,
-    pub raw_packet_data: Vec<u8>,
+pub struct ParsedPacket {
+    pub ptp: PtpMessage,
+    pub raw: std::sync::Arc<crate::socket::RawPacket>,
 }
 
 #[test]

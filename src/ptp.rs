@@ -9,7 +9,7 @@ use crate::{
     bounded_vec::BoundedVec,
     types::{
         AnnounceMessage, ClockIdentity, DelayRespMessage, FollowUpMessage,
-        PDelayRespFollowUpMessage, PDelayRespMessage, ProcessedPacket, PtpClockAccuracy,
+        PDelayRespFollowUpMessage, PDelayRespMessage, ParsedPacket, PtpClockAccuracy,
         PtpClockClass, PtpCorrectionField, PtpHeader, PtpMessage, PtpTimestamp, PtpUtcOffset,
         PtpVersion, SyncMessage,
     },
@@ -395,7 +395,7 @@ pub struct PtpHost {
 
     pub state: PtpHostState,
     pub last_correction_field: Option<PtpCorrectionField>,
-    pub packet_history: BoundedVec<Rc<ProcessedPacket>>,
+    pub packet_history: BoundedVec<Rc<ParsedPacket>>,
 }
 
 impl PtpHost {
@@ -475,7 +475,7 @@ impl PtpHost {
         self.ip_addresses.keys().any(|ip| local_ips.contains(ip))
     }
 
-    pub fn add_packet(&mut self, packet: Rc<ProcessedPacket>) {
+    pub fn add_packet(&mut self, packet: Rc<ParsedPacket>) {
         self.packet_history.push(packet);
     }
 
@@ -487,7 +487,7 @@ impl PtpHost {
         }
     }
 
-    pub fn get_packet_history(&self) -> Vec<ProcessedPacket> {
+    pub fn get_packet_history(&self) -> Vec<ParsedPacket> {
         self.packet_history
             .items
             .iter()
@@ -573,7 +573,8 @@ impl PtpTracker {
             // Limit iterations to prevent blocking too long
             match self.raw_socket_receiver.try_recv() {
                 Some(raw_packet) => {
-                    self.handle_raw_packet(&raw_packet).await;
+                    let raw_packet_arc = std::sync::Arc::new(raw_packet);
+                    self.handle_raw_packet(raw_packet_arc).await;
                     self.last_packet = Instant::now();
                 }
                 None => {
@@ -584,23 +585,16 @@ impl PtpTracker {
         }
     }
 
-    async fn handle_raw_packet(&mut self, raw_packet: &crate::socket::RawPacket) {
+    async fn handle_raw_packet(&mut self, raw_packet: std::sync::Arc<crate::socket::RawPacket>) {
         let msg = match PtpMessage::try_from(raw_packet.ptp_payload.as_slice()) {
             Ok(m) => m,
             Err(_) => return, // Invalid message
         };
 
         // Create packet info for recording
-        let packet = Rc::new(ProcessedPacket {
-            ptp_message: msg,
-            timestamp: std::time::Instant::now(),
-            vlan_id: raw_packet.vlan_id,
-            source_addr: raw_packet.source_addr,
-            source_mac: raw_packet.source_mac,
-            dest_addr: raw_packet.dest_addr,
-            dest_mac: raw_packet.dest_mac,
-            interface: raw_packet.interface_name.clone(),
-            raw_packet_data: raw_packet.data.clone(),
+        let packet = Rc::new(ParsedPacket {
+            ptp: msg,
+            raw: raw_packet.clone(),
         });
 
         let sending_host = self
@@ -609,7 +603,10 @@ impl PtpTracker {
             .or_insert_with(|| PtpHost::new(msg.header().source_port_identity.clock_identity));
 
         // Add this IP address if it's not already known for this host
-        sending_host.add_ip_address(raw_packet.source_addr.ip(), packet.interface.clone());
+        sending_host.add_ip_address(
+            raw_packet.source_addr.ip(),
+            packet.raw.interface_name.clone(),
+        );
 
         sending_host.total_messages_sent_count += 1;
         sending_host.update_from_ptp_header(msg.header());
@@ -792,7 +789,7 @@ impl PtpTracker {
     pub fn get_host_packet_history(
         &self,
         clock_identity: ClockIdentity,
-    ) -> Option<Vec<ProcessedPacket>> {
+    ) -> Option<Vec<ParsedPacket>> {
         self.hosts
             .get(&clock_identity)
             .map(|host| host.get_packet_history())
