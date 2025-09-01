@@ -720,6 +720,7 @@ impl PtpTracker {
             }
             PtpMessage::FollowUp(msg) => {
                 sending_host.follow_up_count += 1;
+                sending_host.add_packet(packet.clone());
                 sending_host.state.update_from_follow_up(&msg);
             }
             PtpMessage::Signaling(_) => {

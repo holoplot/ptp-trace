@@ -13,6 +13,8 @@ use crate::{
     version,
 };
 
+use std::time::UNIX_EPOCH;
+
 // Helper function to flatten tree nodes for display
 fn flatten_tree_nodes(nodes: &[TreeNode]) -> Vec<(&TreeNode, usize, bool)> {
     let mut flattened = Vec::new();
@@ -801,7 +803,12 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                     LABEL_WIDTH,
                     theme,
                 ),
-                create_aligned_field("  Sync: ", host.sync_count.to_string(), LABEL_WIDTH, theme),
+                create_aligned_field(
+                    "  Sync/FU: ",
+                    format!("{}/{}", host.sync_count, host.follow_up_count),
+                    LABEL_WIDTH,
+                    theme,
+                ),
                 create_aligned_field(
                     "  Delay Req/Resp: ",
                     format!("{}/{}", host.delay_req_count, host.delay_resp_count),
@@ -1035,7 +1042,7 @@ fn render_scrollbar(
     }
 }
 
-fn format_instant(
+fn format_system_time_ago(
     system_time: std::time::SystemTime,
     reference_time: Option<std::time::SystemTime>,
 ) -> String {
@@ -1192,7 +1199,8 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
         .iter()
         .enumerate()
         .map(|(i, packet)| {
-            let time_str = format_instant(packet.raw.timestamp, app.get_reference_timestamp());
+            let time_str =
+                format_system_time_ago(packet.raw.timestamp, app.get_reference_timestamp());
             let header = packet.ptp.header();
 
             let row_style =
@@ -1319,11 +1327,11 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
         f.render_widget(modal_block.clone(), modal_area);
 
         // Render combined packet details and hexdump
-        render_packet_details_with_hexdump(f, modal_chunks[0], &packet, &theme, app);
+        render_packet_details(f, modal_chunks[0], &packet, &theme, app);
     }
 }
 
-fn render_packet_details_with_hexdump(
+fn render_packet_details(
     f: &mut Frame,
     area: Rect,
     packet: &ParsedPacket,
@@ -1331,14 +1339,25 @@ fn render_packet_details_with_hexdump(
     app: &mut App,
 ) {
     let header = packet.ptp.header();
-    let time_str = format_instant(packet.raw.timestamp, app.get_reference_timestamp());
+    let time_ago_str = format_system_time_ago(packet.raw.timestamp, app.get_reference_timestamp());
+
+    let duration = packet.raw.timestamp.duration_since(UNIX_EPOCH).unwrap();
+
+    // like struct timeval fields:
+    let tv_sec = duration.as_secs(); // seconds since epoch
+    let tv_usec = duration.subsec_micros(); // microseconds within the second
 
     // Define the width for label alignment (same as host details)
     const LABEL_WIDTH: usize = 30;
 
     // Build all content lines (no truncation)
     let mut all_lines = vec![
-        create_aligned_field("Timestamp:", time_str, LABEL_WIDTH, theme),
+        create_aligned_field(
+            "Capture timestamp:",
+            format!("{}.{}s ({})", tv_sec, tv_usec, time_ago_str),
+            LABEL_WIDTH,
+            theme,
+        ),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Network:",

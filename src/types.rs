@@ -7,6 +7,34 @@ pub struct PtpTimestamp {
     pub nanoseconds: u32,
 }
 
+impl PtpTimestamp {
+    pub fn rtp_samples(&self, samplerate: u32) -> u32 {
+        let total_ns = (self.seconds as u128) * 1_000_000_000u128 + (self.nanoseconds as u128);
+        let samples = total_ns * (samplerate as u128) / 1_000_000_000u128;
+        samples as u32
+    }
+
+    pub fn common_samplerates(&self) -> Vec<u32> {
+        vec![44100, 48000, 96000]
+    }
+
+    pub fn format_common_samplerates(&self, prefix: &str) -> Vec<(String, String)> {
+        if self.seconds == 0 && self.nanoseconds == 0 {
+            return vec![];
+        }
+
+        self.common_samplerates()
+            .into_iter()
+            .map(|rate| {
+                (
+                    format!("{} @{} Hz", prefix, rate),
+                    self.rtp_samples(rate).to_string(),
+                )
+            })
+            .collect()
+    }
+}
+
 impl TryFrom<&[u8]> for PtpTimestamp {
     type Error = anyhow::Error;
 
@@ -52,6 +80,21 @@ impl Display for PtpTimestamp {
             write!(f, "UTC: {}.{:09}", utc_seconds, self.nanoseconds)
         }
     }
+}
+
+#[test]
+fn test_ptp_timestamp_rtp_samples() {
+    let timestamp = PtpTimestamp {
+        seconds: 1,
+        nanoseconds: 0,
+    };
+    assert_eq!(timestamp.rtp_samples(48000), 48000);
+
+    let timestamp = PtpTimestamp {
+        seconds: 2,
+        nanoseconds: 500_000_000,
+    };
+    assert_eq!(timestamp.rtp_samples(48000), 120000);
 }
 
 pub fn format_timestamp(timestamp: Option<PtpTimestamp>) -> String {
@@ -518,7 +561,7 @@ impl Display for PtpHeaderFlags {
     }
 }
 
-fn format_kv(kv: Vec<(&str, String)>) -> String {
+fn format_kv(kv: Vec<(String, String)>) -> String {
     kv.iter()
         .map(|(k, v)| format!("{k}: {v}"))
         .collect::<Vec<_>>()
@@ -580,21 +623,30 @@ pub struct AnnounceMessage {
 }
 
 impl AnnounceMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
+    pub fn details(&self) -> Vec<(String, String)> {
         vec![
-            ("Origin Timestamp", self.origin_timestamp.to_string()),
-            ("Current UTC Offset", self.current_utc_offset.to_string()),
-            ("Priority1", self.priority1.to_string()),
-            ("Priority2", self.priority2.to_string()),
-            ("Clock Class", self.clock_class.to_string()),
-            ("Clock Accuracy", self.clock_accuracy.to_string()),
             (
-                "Offset Scaled Log Variance",
+                "Origin Timestamp".to_string(),
+                self.origin_timestamp.to_string(),
+            ),
+            (
+                "Current UTC Offset".to_string(),
+                self.current_utc_offset.to_string(),
+            ),
+            ("Priority1".to_string(), self.priority1.to_string()),
+            ("Priority2".to_string(), self.priority2.to_string()),
+            ("Clock Class".to_string(), self.clock_class.to_string()),
+            (
+                "Clock Accuracy".to_string(),
+                self.clock_accuracy.to_string(),
+            ),
+            (
+                "Offset Scaled Log Variance".to_string(),
                 self.offset_scaled_log_variance.to_string(),
             ),
-            ("PTP Identity", self.ptt_identity.to_string()),
-            ("Steps Removed", self.steps_removed.to_string()),
-            ("Time Source", self.time_source.to_string()),
+            ("PTP Identity".to_string(), self.ptt_identity.to_string()),
+            ("Steps Removed".to_string(), self.steps_removed.to_string()),
+            ("Time Source".to_string(), self.time_source.to_string()),
         ]
     }
 }
@@ -637,8 +689,16 @@ pub struct SyncMessage {
 }
 
 impl SyncMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
-        vec![("OriginTS", self.origin_timestamp.to_string())]
+    pub fn details_compact(&self) -> Vec<(String, String)> {
+        vec![("OriginTS".to_string(), self.origin_timestamp.to_string())]
+    }
+
+    pub fn details(&self) -> Vec<(String, String)> {
+        let mut v = vec![("OriginTS".to_string(), self.origin_timestamp.to_string())];
+
+        v.extend(self.origin_timestamp.format_common_samplerates("→ samples"));
+
+        v
     }
 }
 
@@ -660,7 +720,7 @@ impl TryFrom<&[u8]> for SyncMessage {
 
 impl Display for SyncMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", format_kv(self.details()))
+        write!(f, "{}", format_kv(self.details_compact()))
     }
 }
 
@@ -671,8 +731,25 @@ pub struct FollowUpMessage {
 }
 
 impl FollowUpMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
-        vec![("PreciseOriginTS", self.precise_origin_timestamp.to_string())]
+    pub fn details_compact(&self) -> Vec<(String, String)> {
+        vec![(
+            "PreciseOriginTS".to_string(),
+            self.precise_origin_timestamp.to_string(),
+        )]
+    }
+
+    pub fn details(&self) -> Vec<(String, String)> {
+        let mut v = vec![(
+            "PreciseOriginTS".to_string(),
+            self.precise_origin_timestamp.to_string(),
+        )];
+
+        v.extend(
+            self.precise_origin_timestamp
+                .format_common_samplerates("→ samples"),
+        );
+
+        v
     }
 }
 
@@ -694,7 +771,7 @@ impl TryFrom<&[u8]> for FollowUpMessage {
 
 impl Display for FollowUpMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", format_kv(self.details()))
+        write!(f, "{}", format_kv(self.details_compact()))
     }
 }
 
@@ -705,8 +782,8 @@ pub struct PDelayReqMessage {
 }
 
 impl PDelayReqMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
-        vec![("OriginTS", self.origin_timestamp.to_string())]
+    pub fn details(&self) -> Vec<(String, String)> {
+        vec![("OriginTS".to_string(), self.origin_timestamp.to_string())]
     }
 }
 
@@ -740,13 +817,16 @@ pub struct PDelayRespMessage {
 }
 
 impl PDelayRespMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
+    pub fn details(&self) -> Vec<(String, String)> {
         vec![
             (
-                "RequestReceiptTS",
+                "RequestReceiptTS".to_string(),
                 self.request_receipt_timestamp.to_string(),
             ),
-            ("RequestingPI", self.requesting_port_identity.to_string()),
+            (
+                "RequestingPI".to_string(),
+                self.requesting_port_identity.to_string(),
+            ),
         ]
     }
 }
@@ -782,13 +862,16 @@ pub struct PDelayRespFollowUpMessage {
 }
 
 impl PDelayRespFollowUpMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
+    pub fn details(&self) -> Vec<(String, String)> {
         vec![
             (
-                "ResponseOriginTS",
+                "ResponseOriginTS".to_string(),
                 self.response_origin_timestamp.to_string(),
             ),
-            ("RequestingPI", self.requesting_port_identity.to_string()),
+            (
+                "RequestingPI".to_string(),
+                self.requesting_port_identity.to_string(),
+            ),
         ]
     }
 }
@@ -823,8 +906,8 @@ pub struct DelayReqMessage {
 }
 
 impl DelayReqMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
-        vec![("Origin TS", self.origin_timestamp.to_string())]
+    pub fn details(&self) -> Vec<(String, String)> {
+        vec![("Origin TS".to_string(), self.origin_timestamp.to_string())]
     }
 }
 
@@ -858,10 +941,13 @@ pub struct DelayRespMessage {
 }
 
 impl DelayRespMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
+    pub fn details(&self) -> Vec<(String, String)> {
         vec![
-            ("Receive TS", self.receive_timestamp.to_string()),
-            ("Requesting PI", self.requesting_port_identity.to_string()),
+            ("Receive TS".to_string(), self.receive_timestamp.to_string()),
+            (
+                "Requesting PI".to_string(),
+                self.requesting_port_identity.to_string(),
+            ),
         ]
     }
 }
@@ -897,8 +983,11 @@ pub struct SignalingMessage {
 }
 
 impl SignalingMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
-        vec![("Target PI", self.target_port_identity.to_string())]
+    pub fn details(&self) -> Vec<(String, String)> {
+        vec![(
+            "Target PI".to_string(),
+            self.target_port_identity.to_string(),
+        )]
     }
 }
 
@@ -934,15 +1023,21 @@ pub struct ManagementMessage {
 }
 
 impl ManagementMessage {
-    pub fn details(&self) -> Vec<(&str, String)> {
+    pub fn details(&self) -> Vec<(String, String)> {
         vec![
-            ("Target PI", format!("{}", self.target_port_identity)),
             (
-                "StartingBoundaryHops",
+                "Target PI".to_string(),
+                format!("{}", self.target_port_identity),
+            ),
+            (
+                "StartingBoundaryHops".to_string(),
                 format!("{}", self.starting_boundary_hops),
             ),
-            ("BoundaryHops", format!("{}", self.boundary_hops)),
-            ("ActionField", format!("{}", self.action_field)),
+            (
+                "BoundaryHops".to_string(),
+                format!("{}", self.boundary_hops),
+            ),
+            ("ActionField".to_string(), format!("{}", self.action_field)),
         ]
     }
 }
@@ -1001,7 +1096,7 @@ impl PtpMessage {
         }
     }
 
-    pub fn details(&self) -> Vec<(&str, String)> {
+    pub fn details(&self) -> Vec<(String, String)> {
         match self {
             PtpMessage::Announce(msg) => msg.details(),
             PtpMessage::DelayReq(msg) => msg.details(),
