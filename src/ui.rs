@@ -97,9 +97,9 @@ fn create_host_row<'a>(
     };
 
     let clock_class_display = match &host.state {
-        PtpHostState::TimeTransmitter(s) => {
-            s.clock_class.map_or("-".to_string(), |c| c.to_string())
-        }
+        PtpHostState::TimeTransmitter(s) => s
+            .clock_class
+            .map_or("-".to_string(), |c| c.class().to_string()),
         _ => "-".to_string(),
     };
 
@@ -155,7 +155,7 @@ fn create_host_row<'a>(
 
 // Helper function to create aligned label-value pairs
 fn create_aligned_field<'a>(
-    label: &'a str,
+    label: String,
     value: String,
     label_width: usize,
     theme: &'a crate::themes::Theme,
@@ -170,7 +170,7 @@ fn create_aligned_field<'a>(
 }
 
 fn create_aligned_field_with_vendor<'a>(
-    label: &'a str,
+    label: String,
     value: String,
     vendor_info: String,
     label_width: usize,
@@ -541,13 +541,13 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
 
     let stats_text = vec![
         create_aligned_field(
-            "Total Hosts: ",
+            "Total Hosts: ".to_string(),
             total_hosts.to_string(),
             STATS_LABEL_WIDTH,
             theme,
         ),
         create_aligned_field_with_vendor(
-            "Transmitters: ",
+            "Transmitters: ".to_string(),
             transmitter_count.to_string(),
             String::new(),
             STATS_LABEL_WIDTH,
@@ -555,7 +555,7 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
             theme.state_transmitter,
         ),
         create_aligned_field_with_vendor(
-            "Receivers: ",
+            "Receivers: ".to_string(),
             receiver_count.to_string(),
             String::new(),
             STATS_LABEL_WIDTH,
@@ -563,7 +563,7 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
             theme.state_receiver,
         ),
         create_aligned_field(
-            "Last packet: ",
+            "Last packet: ".to_string(),
             format!("{}s ago", app.ptp_tracker.get_last_packet_age().as_secs()),
             STATS_LABEL_WIDTH,
             theme,
@@ -597,7 +597,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             let mut details_text = vec![
                 // Host details section
                 create_aligned_field_with_vendor(
-                    "Clock Identity: ",
+                    "Clock Identity: ".to_string(),
                     host.clock_identity.to_string(),
                     host.get_vendor_name()
                         .map(|vendor| format!(" ({})", vendor))
@@ -618,7 +618,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                     format!("{} ({})", ip, s)
                 };
                 details_text.push(create_aligned_field(
-                    "IP Address: ",
+                    "IP Address: ".to_string(),
                     ip_display,
                     LABEL_WIDTH,
                     theme,
@@ -627,7 +627,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
 
             details_text.extend(vec![
                 create_aligned_field_with_vendor(
-                    "State: ",
+                    "State: ".to_string(),
                     host.state.to_string(),
                     String::new(),
                     LABEL_WIDTH,
@@ -635,14 +635,14 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                     theme.get_state_color(&host.state),
                 ),
                 create_aligned_field(
-                    "PTP Version: ",
+                    "PTP Version: ".to_string(),
                     host.last_version
                         .map_or("N/A".to_string(), |v| v.to_string()),
                     LABEL_WIDTH,
                     theme,
                 ),
                 create_aligned_field(
-                    "Domain: ",
+                    "Domain: ".to_string(),
                     host.domain_number
                         .map(|d| d.to_string())
                         .unwrap_or("N/A".to_string()),
@@ -650,14 +650,14 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                     theme,
                 ),
                 create_aligned_field(
-                    "Last Correction: ",
+                    "Last Correction: ".to_string(),
                     host.last_correction_field
                         .map_or("N/A".to_string(), |v| format!("{} ({})", v, v.value)),
                     LABEL_WIDTH,
                     theme,
                 ),
                 create_aligned_field(
-                    "Last Seen: ",
+                    "Last Seen: ".to_string(),
                     format!(
                         "{:.1}s ago",
                         host.time_since_last_seen(app.get_reference_timestamp())
@@ -680,69 +680,93 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                                 .add_modifier(Modifier::BOLD),
                         )]),
                         create_aligned_field(
-                            "Priority 1: ",
+                            "Priority 1: ".to_string(),
                             s.priority1.map_or("N/A".to_string(), |p| p.to_string()),
                             LABEL_WIDTH,
                             theme,
                         ),
                         create_aligned_field(
-                            "Priority 2: ",
+                            "Priority 2: ".to_string(),
                             s.priority2.map_or("N/A".to_string(), |p| p.to_string()),
                             LABEL_WIDTH,
                             theme,
                         ),
                         create_aligned_field(
-                            "Clock Class: ",
+                            "Clock Class: ".to_string(),
                             format_clock_class(s.clock_class),
                             LABEL_WIDTH,
                             theme,
                         ),
                         create_aligned_field(
-                            "Accuracy: ",
+                            "Accuracy: ".to_string(),
                             format_clock_accuracy(s.clock_accuracy),
                             LABEL_WIDTH,
                             theme,
                         ),
                         create_aligned_field(
-                            "Log Variance: ",
+                            "Log Variance: ".to_string(),
                             s.offset_scaled_log_variance
                                 .map_or("N/A".to_string(), |v| v.to_string()),
                             LABEL_WIDTH,
                             theme,
                         ),
                         create_aligned_field(
-                            "Primary Identity: ",
+                            "Primary Identity: ".to_string(),
                             s.ptt_identifier
                                 .map_or("N/A".to_string(), |p| p.to_string()),
                             LABEL_WIDTH,
                             theme,
                         ),
                         create_aligned_field(
-                            "UTC Offset: ",
+                            "UTC Offset: ".to_string(),
                             s.current_utc_offset
                                 .map_or("N/A".to_string(), |o| o.to_string()),
                             LABEL_WIDTH,
                             theme,
                         ),
-                        create_aligned_field(
-                            "Announce TS: ",
-                            format_timestamp(s.last_announce_origin_timestamp),
-                            LABEL_WIDTH,
-                            theme,
-                        ),
-                        create_aligned_field(
-                            "Sync TS: ",
-                            format_timestamp(s.last_sync_origin_timestamp),
-                            LABEL_WIDTH,
-                            theme,
-                        ),
-                        create_aligned_field(
-                            "Follow-Up TS: ",
-                            format_timestamp(s.last_followup_origin_timestamp),
-                            LABEL_WIDTH,
-                            theme,
-                        ),
                     ]);
+
+                    details_text.push(create_aligned_field(
+                        "Sync TS: ".to_string(),
+                        format_timestamp(s.last_sync_origin_timestamp),
+                        LABEL_WIDTH,
+                        theme,
+                    ));
+
+                    match s.last_sync_origin_timestamp {
+                        Some(ts) => {
+                            for (k, v) in ts.format_common_samplerates("→ samples").iter() {
+                                details_text.push(create_aligned_field(
+                                    format!("{}:", k),
+                                    format!("{}", v),
+                                    LABEL_WIDTH,
+                                    theme,
+                                ));
+                            }
+                        }
+                        None => {}
+                    }
+
+                    details_text.push(create_aligned_field(
+                        "Follow-Up TS: ".to_string(),
+                        format_timestamp(s.last_followup_origin_timestamp),
+                        LABEL_WIDTH,
+                        theme,
+                    ));
+
+                    match s.last_followup_origin_timestamp {
+                        Some(ts) => {
+                            for (k, v) in ts.format_common_samplerates("→ samples").iter() {
+                                details_text.push(create_aligned_field(
+                                    format!("{}: ", k),
+                                    format!("{}", v),
+                                    LABEL_WIDTH,
+                                    theme,
+                                ));
+                            }
+                        }
+                        None => {}
+                    }
                 }
                 PtpHostState::TimeReceiver(s) => {
                     details_text.extend(vec![
@@ -754,7 +778,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                                 .add_modifier(Modifier::BOLD),
                         )]),
                         create_aligned_field_with_vendor(
-                            "Selected Transmitter: ",
+                            "Selected Transmitter: ".to_string(),
                             match s.selected_transmitter_identity {
                                 Some(identity) => identity.to_string(),
                                 None => "None".to_string(),
@@ -768,19 +792,19 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                             theme.get_confidence_color(s.selected_transmitter_confidence),
                         ),
                         create_aligned_field(
-                            "Last E2E Delay TS: ",
+                            "Last E2E Delay TS: ".to_string(),
                             format_timestamp(s.last_delay_response_origin_timestamp),
                             LABEL_WIDTH,
                             theme,
                         ),
                         create_aligned_field(
-                            "Last P2P Delay TS: ",
+                            "Last P2P Delay TS: ".to_string(),
                             format_timestamp(s.last_pdelay_response_origin_timestamp),
                             LABEL_WIDTH,
                             theme,
                         ),
                         create_aligned_field(
-                            "Last P2P Delay FU TS: ",
+                            "Last P2P Delay FU TS: ".to_string(),
                             format_timestamp(s.last_pdelay_follow_up_timestamp),
                             LABEL_WIDTH,
                             theme,
@@ -798,25 +822,25 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                         .add_modifier(Modifier::BOLD),
                 )]),
                 create_aligned_field(
-                    "  Announce: ",
+                    "  Announce: ".to_string(),
                     host.announce_count.to_string(),
                     LABEL_WIDTH,
                     theme,
                 ),
                 create_aligned_field(
-                    "  Sync/FU: ",
+                    "  Sync/FU: ".to_string(),
                     format!("{}/{}", host.sync_count, host.follow_up_count),
                     LABEL_WIDTH,
                     theme,
                 ),
                 create_aligned_field(
-                    "  Delay Req/Resp: ",
+                    "  Delay Req/Resp: ".to_string(),
                     format!("{}/{}", host.delay_req_count, host.delay_resp_count),
                     LABEL_WIDTH,
                     theme,
                 ),
                 create_aligned_field(
-                    "  PDelay Req/Resp/FU: ",
+                    "  PDelay Req/Resp/FU: ".to_string(),
                     format!(
                         "{}/{}/{}",
                         host.pdelay_req_count,
@@ -827,7 +851,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                     theme,
                 ),
                 create_aligned_field(
-                    "  Management/Signaling: ",
+                    "  Management/Signaling: ".to_string(),
                     format!(
                         "{}/{}",
                         host.management_message_count, host.signaling_message_count
@@ -1353,7 +1377,7 @@ fn render_packet_details(
     // Build all content lines (no truncation)
     let mut all_lines = vec![
         create_aligned_field(
-            "Capture timestamp:",
+            "Capture timestamp:".to_string(),
             format!("{}.{}s ({})", tv_sec, tv_usec, time_ago_str),
             LABEL_WIDTH,
             theme,
@@ -1366,13 +1390,13 @@ fn render_packet_details(
                 .add_modifier(Modifier::BOLD),
         )]),
         create_aligned_field(
-            "Source Address:",
+            "Source Address:".to_string(),
             packet.raw.source_addr.to_string(),
             LABEL_WIDTH,
             theme,
         ),
         create_aligned_field(
-            "Source MAC:",
+            "Source MAC:".to_string(),
             format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 packet.raw.source_mac[0],
@@ -1386,13 +1410,13 @@ fn render_packet_details(
             theme,
         ),
         create_aligned_field(
-            "Dest Address:",
+            "Dest Address:".to_string(),
             packet.raw.dest_addr.to_string(),
             LABEL_WIDTH,
             theme,
         ),
         create_aligned_field(
-            "Dest MAC:",
+            "Dest MAC:".to_string(),
             format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 packet.raw.dest_mac[0],
@@ -1406,13 +1430,13 @@ fn render_packet_details(
             theme,
         ),
         create_aligned_field(
-            "Interface:",
+            "Interface:".to_string(),
             packet.raw.interface_name.clone(),
             LABEL_WIDTH,
             theme,
         ),
         create_aligned_field(
-            "VLAN ID:",
+            "VLAN ID:".to_string(),
             packet
                 .raw
                 .vlan_id
@@ -1427,7 +1451,12 @@ fn render_packet_details(
                 .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),
         )]),
-        create_aligned_field("Version:", header.version.to_string(), LABEL_WIDTH, theme),
+        create_aligned_field(
+            "Version:".to_string(),
+            header.version.to_string(),
+            LABEL_WIDTH,
+            theme,
+        ),
         Line::from(vec![
             Span::styled(
                 format!("{:width$}", "Message Type:", width = LABEL_WIDTH),
@@ -1439,26 +1468,31 @@ fn render_packet_details(
             ),
         ]),
         create_aligned_field(
-            "Message Length:",
+            "Message Length:".to_string(),
             format!("{} bytes", header.message_length),
             LABEL_WIDTH,
             theme,
         ),
         create_aligned_field(
-            "Domain Number:",
+            "Domain Number:".to_string(),
             header.domain_number.to_string(),
             LABEL_WIDTH,
             theme,
         ),
         create_aligned_field(
-            "Sequence ID:",
+            "Sequence ID:".to_string(),
             header.sequence_id.to_string(),
             LABEL_WIDTH,
             theme,
         ),
-        create_aligned_field("Flags:", header.flags.short(), LABEL_WIDTH, theme),
         create_aligned_field(
-            "Correction Field:",
+            "Flags:".to_string(),
+            header.flags.short(),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "Correction Field:".to_string(),
             format!(
                 "{} ({})",
                 header.correction_field, header.correction_field.value
@@ -1467,7 +1501,7 @@ fn render_packet_details(
             theme,
         ),
         create_aligned_field(
-            "Log Message Interval:",
+            "Log Message Interval:".to_string(),
             header.log_message_interval.to_string(),
             LABEL_WIDTH,
             theme,
