@@ -446,7 +446,7 @@ impl PtpHost {
     }
 
     pub fn time_since_last_seen(&self, reference_time: Option<SystemTime>) -> Duration {
-        let reference = reference_time.unwrap_or_else(|| SystemTime::now());
+        let reference = reference_time.unwrap_or_else(SystemTime::now);
         reference.duration_since(self.last_seen).unwrap_or_default()
     }
 

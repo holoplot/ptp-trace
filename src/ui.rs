@@ -43,6 +43,7 @@ fn flatten_tree_nodes(nodes: &[TreeNode]) -> Vec<(&TreeNode, usize, bool)> {
 }
 
 // Helper function to create a table row for a host
+#[allow(clippy::too_many_arguments)]
 fn create_host_row<'a>(
     host: &PtpHost,
     clock_identity_display: String,
@@ -154,12 +155,12 @@ fn create_host_row<'a>(
 }
 
 // Helper function to create aligned label-value pairs
-fn create_aligned_field<'a>(
+fn create_aligned_field(
     label: String,
     value: String,
     label_width: usize,
-    theme: &'a crate::themes::Theme,
-) -> Line<'a> {
+    theme: &crate::themes::Theme,
+) -> Line {
     Line::from(vec![
         Span::styled(
             format!("{:width$}", label, width = label_width),
@@ -169,14 +170,14 @@ fn create_aligned_field<'a>(
     ])
 }
 
-fn create_aligned_field_with_vendor<'a>(
+fn create_aligned_field_with_vendor(
     label: String,
     value: String,
     vendor_info: String,
     label_width: usize,
-    theme: &'a crate::themes::Theme,
+    theme: &crate::themes::Theme,
     value_color: Color,
-) -> Line<'a> {
+) -> Line {
     Line::from(vec![
         Span::styled(
             format!("{:width$}", label, width = label_width),
@@ -733,18 +734,15 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                         theme,
                     ));
 
-                    match s.last_sync_origin_timestamp {
-                        Some(ts) => {
-                            for (k, v) in ts.format_common_samplerates("→ samples").iter() {
-                                details_text.push(create_aligned_field(
-                                    format!("{}:", k),
-                                    format!("{}", v),
-                                    LABEL_WIDTH,
-                                    theme,
-                                ));
-                            }
+                    if let Some(ts) = s.last_sync_origin_timestamp {
+                        for (k, v) in ts.format_common_samplerates("→ samples").iter() {
+                            details_text.push(create_aligned_field(
+                                format!("{}:", k),
+                                v.to_string(),
+                                LABEL_WIDTH,
+                                theme,
+                            ));
                         }
-                        None => {}
                     }
 
                     details_text.push(create_aligned_field(
@@ -754,18 +752,15 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                         theme,
                     ));
 
-                    match s.last_followup_origin_timestamp {
-                        Some(ts) => {
-                            for (k, v) in ts.format_common_samplerates("→ samples").iter() {
-                                details_text.push(create_aligned_field(
-                                    format!("{}: ", k),
-                                    format!("{}", v),
-                                    LABEL_WIDTH,
-                                    theme,
-                                ));
-                            }
+                    if let Some(ts) = s.last_followup_origin_timestamp {
+                        for (k, v) in ts.format_common_samplerates("→ samples").iter() {
+                            details_text.push(create_aligned_field(
+                                format!("{}:", k),
+                                v.to_string(),
+                                LABEL_WIDTH,
+                                theme,
+                            ));
                         }
-                        None => {}
                     }
                 }
                 PtpHostState::TimeReceiver(s) => {
@@ -1070,7 +1065,7 @@ fn format_system_time_ago(
     system_time: std::time::SystemTime,
     reference_time: Option<std::time::SystemTime>,
 ) -> String {
-    let reference = reference_time.unwrap_or_else(|| std::time::SystemTime::now());
+    let reference = reference_time.unwrap_or_else(std::time::SystemTime::now);
     let elapsed = reference.duration_since(system_time).unwrap_or_default();
 
     let elapsed_str = if elapsed.as_secs() < 1 {
