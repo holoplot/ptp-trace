@@ -858,9 +858,6 @@ impl PtpTracker {
                 continue;
             }
 
-            // Only log BMCA elections when there are multiple transmitters competing
-            let log_election = transmitters.len() > 1;
-
             // Reset all winners in this domain first
             for clock_id in &transmitters {
                 if let Some(host) = self.hosts.get_mut(clock_id) {
@@ -900,12 +897,6 @@ impl PtpTracker {
             if let Some(winner_host) = self.hosts.get_mut(&best_clock_id) {
                 if let PtpHostState::TimeTransmitter(ref mut state) = winner_host.state {
                     state.is_bmca_winner = true;
-                    if log_election {
-                        eprintln!(
-                            "BMCA: Domain {} winner: {} (Primary Time Transmitter)",
-                            domain, best_clock_id
-                        );
-                    }
                 }
             }
 
