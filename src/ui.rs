@@ -160,7 +160,7 @@ fn create_aligned_field(
     value: String,
     label_width: usize,
     theme: &crate::themes::Theme,
-) -> Line {
+) -> Line<'_> {
     Line::from(vec![
         Span::styled(
             format!("{:width$}", label, width = label_width),
@@ -177,7 +177,7 @@ fn create_aligned_field_with_vendor(
     label_width: usize,
     theme: &crate::themes::Theme,
     value_color: Color,
-) -> Line {
+) -> Line<'_> {
     Line::from(vec![
         Span::styled(
             format!("{:width$}", label, width = label_width),
