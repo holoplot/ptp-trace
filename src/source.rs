@@ -1,15 +1,19 @@
 //! Cross-platform raw socket implementation for PTP traffic capture
 //!
-//! This module implements packet capture using libpcap/pcap for cross-platform
+//! This module implements packet capture using pnet for cross-platform
 //! promiscuous mode support. Works on Linux, macOS, and Windows.
 
 use anyhow::Result;
-use libc::timeval;
-use pcap::{Capture, Device, Linktype, Packet};
+use pnet::datalink::{self, Channel, Config};
+use pnet::packet::Packet;
+use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
+use pnet::packet::ip::IpNextHeaderProtocols;
+use pnet::packet::ipv4::Ipv4Packet;
+use pnet::packet::udp::UdpPacket;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 
@@ -99,32 +103,25 @@ fn iface_addrs_by_name(ifname: &str) -> io::Result<Option<Ipv4Addr>> {
 fn get_all_interface_addrs() -> io::Result<Vec<(String, Ipv4Addr)>> {
     let mut interfaces = Vec::new();
 
-    // Get available devices from pcap
-    let devices = match Device::list() {
-        Ok(devices) => devices,
-        Err(e) => {
-            eprintln!("Warning: Failed to list pcap devices: {}", e);
-            return Ok(interfaces);
-        }
-    };
+    // Get available interfaces using pnet datalink
+    let all_interfaces = datalink::interfaces();
 
-    for device in devices {
-        // Skip loopback devices
-        if device.flags.is_loopback() {
+    for iface in all_interfaces {
+        // Skip loopback interfaces
+        if iface.is_loopback() {
             continue;
         }
 
-        // Skip devices without names
-        let device_name = device.name.clone();
+        let interface_name = iface.name.clone();
 
-        // Get IPv4 addresses for this device
-        for addr in &device.addresses {
-            if let IpAddr::V4(ipv4) = addr.addr {
-                if !ipv4.is_loopback() && is_suitable_interface(&device) {
-                    interfaces.push((device_name.clone(), ipv4));
+        // Get IPv4 addresses for this interface
+        for ip in &iface.ips {
+            if let IpAddr::V4(ipv4) = ip.ip() {
+                if !ipv4.is_loopback() && is_suitable_interface_name(&interface_name) {
+                    interfaces.push((interface_name.clone(), ipv4));
                     break; // Only take first IPv4 address per interface
                 } else {
-                    println!("Excluding interface: {} (filtered)", device_name);
+                    println!("Excluding interface: {} (filtered)", interface_name);
                 }
             }
         }
@@ -140,19 +137,7 @@ fn get_all_interface_addrs() -> io::Result<Vec<(String, Ipv4Addr)>> {
     Ok(interfaces)
 }
 
-fn is_suitable_interface(device: &Device) -> bool {
-    let device_name = &device.name;
-
-    // Skip loopback
-    if device.flags.is_loopback() {
-        return false;
-    }
-
-    // Skip if marked as down
-    if !device.flags.is_up() {
-        return false;
-    }
-
+fn is_suitable_interface_name(interface_name: &str) -> bool {
     // Skip common virtual interface patterns
     let virtual_prefixes = [
         "veth", "docker", "br-", "virbr", "vmnet", "tun", "tap", "wg", "dummy", "bond", "team",
@@ -160,7 +145,7 @@ fn is_suitable_interface(device: &Device) -> bool {
     ];
 
     for prefix in &virtual_prefixes {
-        if device_name.starts_with(prefix) {
+        if interface_name.starts_with(prefix) {
             return false;
         }
     }
@@ -194,111 +179,85 @@ fn join_multicast_group(interface_name: &str, interface_addr: Ipv4Addr) -> Resul
     Ok(socket)
 }
 
-fn timeval_to_systemtime(tv: timeval) -> SystemTime {
-    // tv_sec is seconds since epoch, tv_usec is microseconds
-    let dur = Duration::new(tv.tv_sec as u64, (tv.tv_usec as u32) * 1000);
-    UNIX_EPOCH + dur
-}
-
-fn process_ethernet_packet(packet: &Packet, interface_name: &str) -> Option<RawPacket> {
-    let packet_data = packet.data;
-
-    // Minimum Ethernet frame size check
-    if packet_data.len() < 14 {
-        return None;
-    }
-
-    let dest_mac = [
-        packet_data[0],
-        packet_data[1],
-        packet_data[2],
-        packet_data[3],
-        packet_data[4],
-        packet_data[5],
-    ];
-
-    let source_mac = [
-        packet_data[6],
-        packet_data[7],
-        packet_data[8],
-        packet_data[9],
-        packet_data[10],
-        packet_data[11],
-    ];
-
-    // Parse Ethernet header
-    let ethertype = u16::from_be_bytes([packet_data[12], packet_data[13]]);
-    let mut ip_offset = 14;
+fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<RawPacket> {
+    let ethernet = EthernetPacket::new(packet_data)?;
 
     let mut vlan_id: Option<u16> = None;
+    let mut payload_data = ethernet.payload();
+    let mut ethertype = ethernet.get_ethertype();
 
-    // Handle VLAN tags (skip them for now as requested)
-    if ethertype == 0x8100 {
-        // VLAN tag present, skip 4 bytes
-        if packet_data.len() < 18 {
+    // Handle VLAN tags (802.1Q and 802.1ad QinQ)
+    if ethertype == EtherTypes::Vlan {
+        if payload_data.len() < 4 {
             return None;
         }
-        ip_offset = 18;
-        vlan_id = Some(u16::from_be_bytes([packet_data[14], packet_data[15]]) & 0x0FFF);
-        let inner_ethertype = u16::from_be_bytes([packet_data[16], packet_data[17]]);
-        if inner_ethertype != 0x0800 {
-            // Not IPv4
-            return None;
+        // Extract VLAN ID from the outer VLAN tag (first 12 bits of the TCI field)
+        vlan_id = Some(u16::from_be_bytes([payload_data[0], payload_data[1]]) & 0x0FFF);
+        // Get the inner EtherType
+        let inner_ethertype_val = u16::from_be_bytes([payload_data[2], payload_data[3]]);
+        ethertype = if inner_ethertype_val == 0x0800 {
+            EtherTypes::Ipv4
+        } else if inner_ethertype_val == 0x8100 {
+            // Double VLAN tag (QinQ) - skip inner VLAN tag
+            EtherTypes::Vlan
+        } else {
+            return None; // Only handle IPv4 for now
+        };
+        // Skip the outer VLAN header (4 bytes)
+        payload_data = &payload_data[4..];
+
+        // Handle inner VLAN tag if present (QinQ)
+        if ethertype == EtherTypes::Vlan {
+            if payload_data.len() < 4 {
+                return None;
+            }
+            // For QinQ, we keep the outer VLAN ID but could extract inner if needed
+            // Inner VLAN ID: u16::from_be_bytes([payload_data[0], payload_data[1]]) & 0x0FFF
+            let inner_inner_ethertype_val = u16::from_be_bytes([payload_data[2], payload_data[3]]);
+            ethertype = if inner_inner_ethertype_val == 0x0800 {
+                EtherTypes::Ipv4
+            } else {
+                return None; // Only handle IPv4 for now
+            };
+            // Skip the inner VLAN header (4 bytes)
+            payload_data = &payload_data[4..];
         }
-    } else if ethertype != 0x0800 {
-        // Not IPv4
+    }
+
+    // Check if this is an IPv4 packet
+    if ethertype != EtherTypes::Ipv4 {
         return None;
     }
 
-    // Parse IPv4 header
-    if packet_data.len() < ip_offset + 20 {
+    let ipv4_packet = Ipv4Packet::new(payload_data)?;
+
+    // Check if this is UDP
+    if ipv4_packet.get_next_level_protocol() != IpNextHeaderProtocols::Udp {
         return None;
     }
 
-    let ip_header = &packet_data[ip_offset..];
-    let ip_version = (ip_header[0] >> 4) & 0x0F;
-    let ip_protocol = ip_header[9];
-
-    if ip_version != 4 || ip_protocol != 17 {
-        // Not IPv4 or not UDP
-        return None;
-    }
-
-    let source_ip = Ipv4Addr::new(ip_header[12], ip_header[13], ip_header[14], ip_header[15]);
-    let dest_ip = Ipv4Addr::new(ip_header[16], ip_header[17], ip_header[18], ip_header[19]);
-
-    let ip_header_length = ((ip_header[0] & 0x0F) * 4) as usize;
-    if packet_data.len() < ip_offset + ip_header_length + 8 {
-        return None;
-    }
-
-    // Parse UDP header
-    let udp_offset = ip_offset + ip_header_length;
-    let udp_header = &packet_data[udp_offset..];
-
-    let source_port = u16::from_be_bytes([udp_header[0], udp_header[1]]);
-    let dest_port = u16::from_be_bytes([udp_header[2], udp_header[3]]);
-    let udp_length = u16::from_be_bytes([udp_header[4], udp_header[5]]) as usize;
+    let udp_packet = UdpPacket::new(ipv4_packet.payload())?;
 
     // Filter for PTP ports
+    let dest_port = udp_packet.get_destination();
     if dest_port != PTP_EVENT_PORT && dest_port != PTP_GENERAL_PORT {
         return None;
     }
 
-    // Extract PTP payload
-    let ptp_offset = udp_offset + 8;
-    if packet_data.len() < ptp_offset || udp_length < 8 {
-        return None;
-    }
-
-    let ptp_payload_length = std::cmp::min(udp_length - 8, packet_data.len() - ptp_offset);
-    let ptp_payload = packet_data[ptp_offset..ptp_offset + ptp_payload_length].to_vec();
+    let source_mac = ethernet.get_source().octets();
+    let dest_mac = ethernet.get_destination().octets();
+    let source_ip = ipv4_packet.get_source();
+    let dest_ip = ipv4_packet.get_destination();
+    let source_port = udp_packet.get_source();
 
     let source_addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(source_ip, source_port));
     let dest_addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(dest_ip, dest_port));
 
+    // Extract PTP payload
+    let ptp_payload = udp_packet.payload().to_vec();
+
     Some(RawPacket {
-        timestamp: timeval_to_systemtime(packet.header.ts),
+        timestamp: SystemTime::now(),
         data: packet_data.to_vec(),
         source_addr,
         source_mac,
@@ -313,67 +272,46 @@ fn process_ethernet_packet(packet: &Packet, interface_name: &str) -> Option<RawP
 async fn capture_on_interface(
     interface_name: String,
     sender: mpsc::UnboundedSender<RawPacket>,
+    _multicast_socket: Socket,
 ) -> Result<()> {
-    // Find the pcap device
-    let device = Device::list()?
+    // Find the interface
+    let interface = datalink::interfaces()
         .into_iter()
-        .find(|d| d.name == interface_name)
+        .find(|iface| iface.name == interface_name)
         .ok_or_else(|| anyhow::anyhow!("Interface {} not found", interface_name))?;
 
-    // Create capture handle with optimized settings for multiple interfaces
-    let mut cap = match Capture::from_device(device)?
-        .promisc(true)
-        .snaplen(65535)
-        .timeout(100)
-        .buffer_size(1024 * 1024) // Smaller buffer per interface
-        .immediate_mode(true) // Don't buffer packets
-        .open()
-    {
-        Ok(cap) => cap,
+    // Create datalink channel
+    let config = Config::default();
+    let (_, mut rx) = match datalink::channel(&interface, config) {
+        Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
+        Ok(_) => {
+            return Err(anyhow::anyhow!(
+                "Unsupported channel type for interface {}",
+                interface_name
+            ));
+        }
         Err(e) => {
             eprintln!(
-                "Failed to open capture on interface {}: {}",
+                "Failed to open datalink channel on interface {}: {}",
                 interface_name, e
             );
             return Err(anyhow::anyhow!(
-                "Failed to open pcap capture on {}: {}",
+                "Failed to open datalink channel on {}: {}",
                 interface_name,
                 e
             ));
         }
     };
 
-    // Set BPF filter for UDP traffic on PTP ports
-    cap.filter(
-        &format!(
-            "udp and (port {} or port {})",
-            PTP_EVENT_PORT, PTP_GENERAL_PORT
-        ),
-        true,
-    )?;
-
-    // Check if we're capturing on Ethernet
-    if cap.get_datalink() != Linktype::ETHERNET {
-        eprintln!(
-            "Warning: Interface {} is not Ethernet, packet parsing may fail",
-            interface_name
-        );
-    }
-
     loop {
-        match cap.next_packet() {
-            Ok(packet) => {
-                if let Some(raw_packet) = process_ethernet_packet(&packet, &interface_name) {
+        match rx.next() {
+            Ok(packet_data) => {
+                if let Some(raw_packet) = process_ethernet_packet(packet_data, &interface_name) {
                     if sender.send(raw_packet).is_err() {
                         // Receiver has been dropped, exit the loop
                         break;
                     }
                 }
-            }
-            Err(pcap::Error::TimeoutExpired) => {
-                // Timeout is expected, continue
-                tokio::task::yield_now().await;
-                continue;
             }
             Err(e) => {
                 eprintln!("Error capturing packet on {}: {}", interface_name, e);
@@ -388,7 +326,7 @@ async fn capture_on_interface(
     Ok(())
 }
 
-pub async fn create_socket(ifnames: &[String]) -> Result<RawSocketReceiver> {
+pub async fn create_receiver(ifnames: &[String]) -> Result<RawSocketReceiver> {
     // Get interfaces to monitor
     let target_interfaces = if ifnames.is_empty() {
         // Default to all available interfaces
@@ -415,6 +353,17 @@ pub async fn create_socket(ifnames: &[String]) -> Result<RawSocketReceiver> {
         ));
     }
 
+    println!(
+        "Starting live capture on: {}",
+        target_interfaces
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    let (sender, receiver) = mpsc::unbounded_channel();
+
     // Set up multicast group membership for each interface
     let mut multicast_sockets = Vec::new();
     for (interface_name, interface_addr) in &target_interfaces {
@@ -430,33 +379,23 @@ pub async fn create_socket(ifnames: &[String]) -> Result<RawSocketReceiver> {
         }
     }
 
-    let (sender, receiver) = mpsc::unbounded_channel();
-
     // Start packet capture on each interface
-    for (interface_name, _) in &target_interfaces {
+    for (i, (interface_name, _)) in target_interfaces.iter().enumerate() {
         let sender_clone = sender.clone();
         let interface_name_clone = interface_name.clone();
+        let multicast_socket = multicast_sockets[i].try_clone().unwrap();
         tokio::spawn(async move {
             // Stagger startup to reduce resource contention
             tokio::time::sleep(Duration::from_millis(200)).await;
 
-            if let Err(e) = capture_on_interface(interface_name_clone.clone(), sender_clone).await {
+            if let Err(e) =
+                capture_on_interface(interface_name_clone.clone(), sender_clone, multicast_socket)
+                    .await
+            {
                 eprintln!("Packet capture error on {}: {}", interface_name_clone, e);
             }
         });
     }
-
-    println!(
-        "pcap monitoring started on {} interface(s) for PTP events (port {}) and general messages (port {}): {}",
-        target_interfaces.len(),
-        PTP_EVENT_PORT,
-        PTP_GENERAL_PORT,
-        target_interfaces
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
 
     Ok(RawSocketReceiver {
         source: PacketSource::Socket {
@@ -468,22 +407,78 @@ pub async fn create_socket(ifnames: &[String]) -> Result<RawSocketReceiver> {
 }
 
 pub async fn create_pcap(pcap_path: &str) -> Result<RawSocketReceiver> {
-    use pcap::Capture;
+    use pcap_file::pcap::PcapReader;
+    use pcap_file::pcapng::PcapNgReader;
+    use std::fs::File;
 
-    // Open pcap file
-    let mut cap = Capture::from_file(pcap_path)?;
-
-    let mut packets = Vec::new();
+    let mut packets: Vec<RawPacket> = Vec::new();
     let mut last_timestamp: Option<SystemTime> = None;
 
-    // Read all packets from pcap file
-    while let Ok(packet) = cap.next_packet() {
-        if let Some(raw_packet) = process_ethernet_packet(&packet, "pcap") {
-            // Track the latest timestamp for reference
-            if last_timestamp.is_none() || raw_packet.timestamp > last_timestamp.unwrap() {
-                last_timestamp = Some(raw_packet.timestamp);
+    let file = File::open(pcap_path)?;
+
+    // Try to read as PCAPNG first, then as regular PCAP
+    if let Ok(mut pcapng_reader) = PcapNgReader::new(file) {
+        println!("Reading as PCAPNG format");
+
+        while let Some(block) = pcapng_reader.next_block() {
+            match block {
+                Ok(pcap_file::pcapng::Block::EnhancedPacket(epb)) => {
+                    let packet_data = epb.data;
+                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap") {
+                        if last_timestamp.is_none()
+                            || raw_packet.timestamp > last_timestamp.unwrap()
+                        {
+                            last_timestamp = Some(raw_packet.timestamp);
+                        }
+                        packets.push(raw_packet);
+                    }
+                }
+                Ok(pcap_file::pcapng::Block::SimplePacket(spb)) => {
+                    let packet_data = spb.data;
+                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap") {
+                        if last_timestamp.is_none()
+                            || raw_packet.timestamp > last_timestamp.unwrap()
+                        {
+                            last_timestamp = Some(raw_packet.timestamp);
+                        }
+                        packets.push(raw_packet);
+                    }
+                }
+                Ok(_) => {
+                    // Other block types (section header, interface description, etc.)
+                    continue;
+                }
+                Err(e) => {
+                    eprintln!("Error reading PCAPNG block: {}", e);
+                    break;
+                }
             }
-            packets.push(raw_packet);
+        }
+    } else {
+        println!("Failed to read as PCAPNG, trying regular PCAP format");
+
+        // Re-open file for PCAP reading
+        let file = File::open(pcap_path)?;
+        let mut pcap_reader = PcapReader::new(file)?;
+
+        while let Some(pkt) = pcap_reader.next_packet() {
+            match pkt {
+                Ok(packet) => {
+                    let packet_data = packet.data;
+                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap") {
+                        if last_timestamp.is_none()
+                            || raw_packet.timestamp > last_timestamp.unwrap()
+                        {
+                            last_timestamp = Some(raw_packet.timestamp);
+                        }
+                        packets.push(raw_packet);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error reading PCAP packet: {}", e);
+                    break;
+                }
+            }
         }
     }
 

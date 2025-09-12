@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
     let raw_socket_receiver = if let Some(pcap_path) = &cli.pcap_file {
         source::create_pcap(pcap_path).await?
     } else {
-        source::create_socket(&cli.interface).await?
+        source::create_receiver(&cli.interface).await?
     };
 
     // Initialize the application

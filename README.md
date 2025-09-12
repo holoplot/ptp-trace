@@ -18,7 +18,7 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 
 ### 🌐 **Network Monitoring**
 - 🔍 Automatic PTP host discovery on port 319 and 320
-- 📡 **Cross-platform packet capture** - Uses libpcap/pcap for promiscuous mode on Linux, macOS, and Windows
+- 📡 **Cross-platform packet capture** - Uses pnet for live capturing on Linux, macOS, and Windows
 - 📄 **PCAP file support** - Read and analyze PTP packets from captured pcap files (offline analysis mode)
 - 🌐 **Multicast group membership** - Ensures network interfaces receive multicast PTP traffic
 - 🔍 **Full packet analysis** - Records both raw packet data and parsed PTP content
@@ -75,7 +75,6 @@ sudo tcpdump -i eth0 -w ptp_capture.pcap 'udp port 319 or udp port 320'
 - 🔧 **Administrator privileges required** - Needed for promiscuous mode packet capture (in live capture mode)
 - 🌐 Network interfaces with PTP traffic (ports 319/320)
 - 📦 **Platform-specific requirements**:
-  - **Linux**: libpcap-dev (`sudo apt install libpcap-dev`)
   - **macOS**: Xcode command line tools (`xcode-select --install`)
   - **Windows**: WinPcap or Npcap installed
 

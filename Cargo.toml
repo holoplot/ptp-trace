@@ -15,7 +15,9 @@ socket2 = "0.6"
 phf = { version = "0.13", features = ["macros"] }
 if-addrs = "0.14"
 chrono = { version = "0.4", features = ["serde"] }
-pcap = "2.3"
+pnet = "0.35"
+pnet_datalink = "0.35"
+pcap-file = "2.0"
 libc = "0.2"
 
 
