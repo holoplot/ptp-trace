@@ -175,8 +175,6 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 - 🔍 **Advanced filtering** - Search and filter capabilities for both live and pcap modes
 - 📊 **Enhanced analytics** - Statistical analysis of timing data
 - 🔧 **Configuration management** - Save/load application settings
-- 📦 **Packet inspection tools** - Hex dump viewer for raw packet analysis
-- 🎬 **PCAP enhancements** - Playback controls, time range selection, and analysis reports
 
 ## 🛠️ Development
 
@@ -221,7 +219,7 @@ Feel free to contribute to this project by submitting pull requests with the upd
 - ⌨️ **crossterm** - Cross-platform terminal handling
 - 📝 **clap** - Command line argument parsing
 - ❗ **anyhow** - Error handling
-- 📡 **pcap** - Cross-platform packet capture (libpcap/WinPcap/Npcap)
+- 🔌 **pnet** - Cross-platform packet capture
 - 🔧 **socket2** - Advanced socket operations and multicast group joining
 - 🧮 **libc** - Low-level system calls
 
