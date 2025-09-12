@@ -876,8 +876,8 @@ impl PtpTracker {
                     self.hosts.get(&candidate_clock_id),
                 ) {
                     if let (
-                        PtpHostState::TimeTransmitter(ref best_state),
-                        PtpHostState::TimeTransmitter(ref candidate_state),
+                        PtpHostState::TimeTransmitter(best_state),
+                        PtpHostState::TimeTransmitter(candidate_state),
                     ) = (&best_host.state, &candidate_host.state)
                     {
                         let comparison_result = candidate_state.compare_for_bmca(
