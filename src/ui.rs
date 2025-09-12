@@ -198,7 +198,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 Constraint::Percentage(50), // Main content (hosts + details)
                 Constraint::Percentage(50), // Expanded packet history
             ])
-            .split(f.size())
+            .split(f.area())
     } else {
         // Normal view: smaller packet history area
         Layout::default()
@@ -208,7 +208,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 Constraint::Min(15),    // Main content (hosts + details)
                 Constraint::Length(10), // Compact packet history (fixed height)
             ])
-            .split(f.size())
+            .split(f.area())
     };
 
     // Render header
@@ -224,7 +224,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     // Render packet modal overlay if active
     if app.show_packet_modal {
-        render_packet_modal(f, f.size(), app);
+        render_packet_modal(f, f.area(), app);
     }
 }
 
@@ -496,7 +496,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                 }),
         )
         .style(Style::default().bg(theme.background))
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
 
     f.render_widget(table, area);

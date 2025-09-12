@@ -6,6 +6,7 @@ use crossterm::{
 };
 use ratatui::{
     backend::{Backend, CrosstermBackend},
+    layout::Rect,
     Terminal,
 };
 use std::{
@@ -201,7 +202,8 @@ impl App {
         loop {
             // Handle forced redraw (like Ctrl+L)
             if self.force_redraw {
-                terminal.resize(terminal.size()?)?;
+                let size = terminal.size()?;
+                terminal.resize(Rect::new(0, 0, size.width, size.height))?;
                 terminal.clear()?;
                 self.force_redraw = false;
             }
@@ -223,7 +225,8 @@ impl App {
                     }
                     Event::Resize(_, _) => {
                         // Terminal resize automatically triggers full redraw
-                        terminal.resize(terminal.size()?)?;
+                        let size = terminal.size()?;
+                        terminal.resize(Rect::new(0, 0, size.width, size.height))?;
                     }
                     _ => {}
                 }
