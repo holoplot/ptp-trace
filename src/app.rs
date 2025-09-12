@@ -2,12 +2,12 @@ use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::{Backend, CrosstermBackend},
     layout::Rect,
-    Terminal,
 };
 use std::{
     io,
@@ -423,12 +423,13 @@ impl App {
                     self.scroll_modal_down();
                 } else if matches!(self.active_view, ActiveView::PacketHistory) {
                     let packet_count = self.get_packet_history().len();
-                    if packet_count > 0 && self.selected_packet_index < packet_count {
-                        if let Some(packet) = self.get_selected_packet() {
-                            self.modal_packet = Some(packet);
-                            self.show_packet_modal = true;
-                            self.modal_scroll_offset = 0;
-                        }
+                    if packet_count > 0
+                        && self.selected_packet_index < packet_count
+                        && let Some(packet) = self.get_selected_packet()
+                    {
+                        self.modal_packet = Some(packet);
+                        self.show_packet_modal = true;
+                        self.modal_scroll_offset = 0;
                     }
                 }
             }
@@ -767,13 +768,13 @@ impl App {
         > = std::collections::HashMap::new();
 
         for (i, host) in hosts.iter().enumerate() {
-            if let PtpHostState::TimeReceiver(receiver_state) = &host.state {
-                if let Some(transmitter_id) = receiver_state.selected_transmitter_identity {
-                    transmitter_to_receiver_indices
-                        .entry(transmitter_id)
-                        .or_default()
-                        .push(i);
-                }
+            if let PtpHostState::TimeReceiver(receiver_state) = &host.state
+                && let Some(transmitter_id) = receiver_state.selected_transmitter_identity
+            {
+                transmitter_to_receiver_indices
+                    .entry(transmitter_id)
+                    .or_default()
+                    .push(i);
             }
         }
 
@@ -989,10 +990,10 @@ impl App {
 
     pub fn get_packet_history(&self) -> Vec<ParsedPacket> {
         // Return packets from the currently selected host
-        if let Some(ref selected_host_id) = self.selected_host_id {
-            if let Some(history) = self.ptp_tracker.get_host_packet_history(*selected_host_id) {
-                return history;
-            }
+        if let Some(ref selected_host_id) = self.selected_host_id
+            && let Some(history) = self.ptp_tracker.get_host_packet_history(*selected_host_id)
+        {
+            return history;
         }
 
         Vec::new()
@@ -1056,13 +1057,13 @@ impl App {
 
     fn restore_host_selection(&mut self) {
         // If we have a stored host ID, try to find it in the current list
-        if let Some(ref stored_host_id) = self.selected_host_id {
-            if let Some(found_index) = self.find_host_index(*stored_host_id) {
-                // Found the stored host, select it
-                self.selected_index = found_index;
-                self.ensure_host_visible(20);
-                return;
-            }
+        if let Some(ref stored_host_id) = self.selected_host_id
+            && let Some(found_index) = self.find_host_index(*stored_host_id)
+        {
+            // Found the stored host, select it
+            self.selected_index = found_index;
+            self.update_selected_host(found_index);
+            return;
         }
 
         // Either no stored host ID, or stored host not found - clamp current index
@@ -1140,11 +1141,7 @@ impl App {
     pub fn ensure_packet_visible(&mut self) {
         let visible_height = if self.visible_packet_height == 0 {
             // Defensive fallback if height hasn't been set yet
-            if self.packet_history_expanded {
-                20
-            } else {
-                8
-            }
+            if self.packet_history_expanded { 20 } else { 8 }
         } else {
             self.visible_packet_height
         };

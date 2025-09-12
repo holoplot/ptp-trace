@@ -860,10 +860,10 @@ impl PtpTracker {
 
             // Reset all winners in this domain first
             for clock_id in &transmitters {
-                if let Some(host) = self.hosts.get_mut(clock_id) {
-                    if let PtpHostState::TimeTransmitter(ref mut state) = host.state {
-                        state.is_bmca_winner = false;
-                    }
+                if let Some(host) = self.hosts.get_mut(clock_id)
+                    && let PtpHostState::TimeTransmitter(ref mut state) = host.state
+                {
+                    state.is_bmca_winner = false;
                 }
             }
 
@@ -874,30 +874,28 @@ impl PtpTracker {
                 if let (Some(best_host), Some(candidate_host)) = (
                     self.hosts.get(&best_clock_id),
                     self.hosts.get(&candidate_clock_id),
-                ) {
-                    if let (
-                        PtpHostState::TimeTransmitter(best_state),
-                        PtpHostState::TimeTransmitter(candidate_state),
-                    ) = (&best_host.state, &candidate_host.state)
-                    {
-                        let comparison_result = candidate_state.compare_for_bmca(
-                            best_state,
-                            candidate_clock_id,
-                            best_clock_id,
-                        );
+                ) && let (
+                    PtpHostState::TimeTransmitter(best_state),
+                    PtpHostState::TimeTransmitter(candidate_state),
+                ) = (&best_host.state, &candidate_host.state)
+                {
+                    let comparison_result = candidate_state.compare_for_bmca(
+                        best_state,
+                        candidate_clock_id,
+                        best_clock_id,
+                    );
 
-                        if comparison_result == std::cmp::Ordering::Less {
-                            best_clock_id = candidate_clock_id;
-                        }
+                    if comparison_result == std::cmp::Ordering::Less {
+                        best_clock_id = candidate_clock_id;
                     }
                 }
             }
 
             // Mark the winner
-            if let Some(winner_host) = self.hosts.get_mut(&best_clock_id) {
-                if let PtpHostState::TimeTransmitter(ref mut state) = winner_host.state {
-                    state.is_bmca_winner = true;
-                }
+            if let Some(winner_host) = self.hosts.get_mut(&best_clock_id)
+                && let PtpHostState::TimeTransmitter(ref mut state) = winner_host.state
+            {
+                state.is_bmca_winner = true;
             }
 
             // Update receivers in this domain to select the BMCA winner as their transmitter
@@ -908,11 +906,11 @@ impl PtpTracker {
     /// Update all receivers in a domain to select the BMCA winner as their transmitter
     fn update_receivers_for_domain(&mut self, domain: u8, winner_clock_id: ClockIdentity) {
         for host in self.hosts.values_mut() {
-            if host.domain_number == Some(domain) {
-                if let PtpHostState::TimeReceiver(ref mut receiver_state) = host.state {
-                    receiver_state.selected_transmitter_identity = Some(winner_clock_id);
-                    receiver_state.selected_transmitter_confidence = 1.0; // High confidence from BMCA
-                }
+            if host.domain_number == Some(domain)
+                && let PtpHostState::TimeReceiver(ref mut receiver_state) = host.state
+            {
+                receiver_state.selected_transmitter_identity = Some(winner_clock_id);
+                receiver_state.selected_transmitter_confidence = 1.0; // High confidence from BMCA
             }
         }
     }

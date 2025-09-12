@@ -1,15 +1,15 @@
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
-    Frame,
 };
 
 use crate::{
     app::{ActiveView, App, SortColumn, TreeNode},
     ptp::{PtpHost, PtpHostState},
-    types::{format_timestamp, ParsedPacket, PtpClockAccuracy, PtpClockClass},
+    types::{ParsedPacket, PtpClockAccuracy, PtpClockClass, format_timestamp},
     version,
 };
 
@@ -383,11 +383,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                 // Create indentation for tree structure
                 let indent = "  ".repeat(node.depth);
                 let tree_prefix = if node.depth > 0 {
-                    if *is_last_child {
-                        "└─ "
-                    } else {
-                        "├─ "
-                    }
+                    if *is_last_child { "└─ " } else { "├─ " }
                 } else {
                     ""
                 };

@@ -306,11 +306,11 @@ async fn capture_on_interface(
     loop {
         match rx.next() {
             Ok(packet_data) => {
-                if let Some(raw_packet) = process_ethernet_packet(packet_data, &interface_name) {
-                    if sender.send(raw_packet).is_err() {
-                        // Receiver has been dropped, exit the loop
-                        break;
-                    }
+                if let Some(raw_packet) = process_ethernet_packet(packet_data, &interface_name)
+                    && sender.send(raw_packet).is_err()
+                {
+                    // Receiver has been dropped, exit the loop
+                    break;
                 }
             }
             Err(e) => {

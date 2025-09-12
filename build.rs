@@ -45,38 +45,33 @@ fn get_git_version() -> String {
     if let Ok(output) = Command::new("git")
         .args(["describe", "--tags", "--dirty", "--always"])
         .output()
+        && output.status.success()
+        && let Ok(version) = String::from_utf8(output.stdout)
     {
-        if output.status.success() {
-            if let Ok(version) = String::from_utf8(output.stdout) {
-                let version = version.trim();
-                // If version doesn't start with 'v' and contains no '-', it's just a commit hash
-                if !version.starts_with('v') && !version.contains('-') {
-                    // Get Cargo version and append git hash
-                    let cargo_version =
-                        env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
-                    return if version.len() >= 7 {
-                        format!("{}-g{}", cargo_version, &version[..7])
-                    } else {
-                        format!("{}-g{}", cargo_version, version)
-                    };
-                }
-                return version.to_string();
-            }
+        let version = version.trim();
+        // If version doesn't start with 'v' and contains no '-', it's just a commit hash
+        if !version.starts_with('v') && !version.contains('-') {
+            // Get Cargo version and append git hash
+            let cargo_version =
+                env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
+            return if version.len() >= 7 {
+                format!("{}-g{}", cargo_version, &version[..7])
+            } else {
+                format!("{}-g{}", cargo_version, version)
+            };
         }
+        return version.to_string();
     }
 
     // Fallback to git rev-parse for just commit hash
     if let Ok(output) = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
+        && output.status.success()
+        && let Ok(hash) = String::from_utf8(output.stdout)
     {
-        if output.status.success() {
-            if let Ok(hash) = String::from_utf8(output.stdout) {
-                let cargo_version =
-                    env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
-                return format!("{}-g{}", cargo_version, hash.trim());
-            }
-        }
+        let cargo_version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
+        return format!("{}-g{}", cargo_version, hash.trim());
     }
 
     // Final fallback to Cargo.toml version
@@ -87,12 +82,10 @@ fn get_git_hash() -> String {
     if let Ok(output) = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
+        && output.status.success()
+        && let Ok(hash) = String::from_utf8(output.stdout)
     {
-        if output.status.success() {
-            if let Ok(hash) = String::from_utf8(output.stdout) {
-                return hash.trim().to_string();
-            }
-        }
+        return hash.trim().to_string();
     }
 
     "unknown".to_string()
