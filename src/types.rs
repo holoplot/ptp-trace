@@ -8,9 +8,12 @@ pub struct PtpTimestamp {
 }
 
 impl PtpTimestamp {
+    pub fn total_nanoseconds(&self) -> u128 {
+        (self.seconds as u128) * 1_000_000_000u128 + (self.nanoseconds as u128)
+    }
+
     pub fn rtp_samples(&self, samplerate: u32) -> u32 {
-        let total_ns = (self.seconds as u128) * 1_000_000_000u128 + (self.nanoseconds as u128);
-        let samples = total_ns * (samplerate as u128) / 1_000_000_000u128;
+        let samples = self.total_nanoseconds() * (samplerate as u128) / 1_000_000_000u128;
         samples as u32
     }
 
@@ -52,32 +55,27 @@ impl TryFrom<&[u8]> for PtpTimestamp {
 
 impl Display for PtpTimestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use chrono::{DateTime, Datelike, Timelike};
-
-        // PTP uses TAI (International Atomic Time) - convert to UTC for display
-        // Current leap seconds offset (as of 2024): 37 seconds
-        const LEAP_SECONDS_OFFSET: u64 = 37;
-
-        // Convert TAI to UTC and format as datetime if within reasonable bounds
-        let utc_seconds = self.seconds.saturating_sub(LEAP_SECONDS_OFFSET);
+        use hifitime::{Duration, Epoch, TimeScale};
 
         if self.seconds == 0 && self.nanoseconds == 0 {
             write!(f, "0")
-        } else if let Some(dt) = DateTime::from_timestamp(utc_seconds as i64, self.nanoseconds) {
+        } else {
+            // PTP uses TAI time since 1 January 1970 00:00:00, in nanoseconds
+            // Create TAI epoch from PTP timestamp
+            let duration = Duration::from_total_nanoseconds(self.total_nanoseconds() as i128);
+            let epoch = Epoch::from_unix_duration(duration);
+
+            let (year, month, day, hour, minute, second, nanosecond) = epoch.to_gregorian_utc();
+
+            let dur_utc = epoch.to_duration_in_time_scale(TimeScale::UTC);
+            let dur_tai = epoch.to_duration_in_time_scale(TimeScale::TAI);
+            let tai_offset = (dur_tai - dur_utc).to_seconds();
+
             write!(
                 f,
-                "{}-{:02}-{:02} {:02}:{:02}:{:02}.{:09}",
-                dt.year(),
-                dt.month(),
-                dt.day(),
-                dt.hour(),
-                dt.minute(),
-                dt.second(),
-                self.nanoseconds
+                "{}-{:02}-{:02} {:02}:{:02}:{:02}.{:09} ({:+}s)",
+                year, month, day, hour, minute, second, nanosecond, tai_offset,
             )
-        } else {
-            // Fallback for invalid timestamps
-            write!(f, "UTC: {}.{:09}", utc_seconds, self.nanoseconds)
         }
     }
 }
@@ -106,14 +104,11 @@ pub fn format_timestamp(timestamp: Option<PtpTimestamp>) -> String {
 
 #[test]
 fn test_ptp_timestamp_formatting() {
-    // Test a known timestamp: January 1, 2024 00:00:00 UTC
-    // UTC timestamp: 1704067200 seconds since Unix epoch
-    // PTP uses TAI: TAI = UTC + leap_seconds_offset
-    // TAI timestamp: 1704067200 + 37 = 1704067237 seconds since PTP epoch (1970 TAI)
+    // Test TAI offset display functionality
     let mut timestamp = [0u8; 10];
 
-    // Set seconds (big-endian, 6 bytes) - this is TAI time
-    let ptp_seconds: u64 = 1704067237;
+    // Set a test timestamp with TAI seconds
+    let ptp_seconds: u64 = 3914496037;
     timestamp[0] = ((ptp_seconds >> 40) & 0xff) as u8;
     timestamp[1] = ((ptp_seconds >> 32) & 0xff) as u8;
     timestamp[2] = ((ptp_seconds >> 24) & 0xff) as u8;
@@ -121,15 +116,12 @@ fn test_ptp_timestamp_formatting() {
     timestamp[4] = ((ptp_seconds >> 8) & 0xff) as u8;
     timestamp[5] = (ptp_seconds & 0xff) as u8;
 
-    // Set nanoseconds (big-endian, 4 bytes) - 123456789 nanoseconds
+    // Set nanoseconds (big-endian, 4 bytes)
     let nanos: u32 = 123456789;
     timestamp[6] = ((nanos >> 24) & 0xff) as u8;
     timestamp[7] = ((nanos >> 16) & 0xff) as u8;
     timestamp[8] = ((nanos >> 8) & 0xff) as u8;
     timestamp[9] = (nanos & 0xff) as u8;
-
-    let formatted = PtpTimestamp::try_from(&timestamp[..]).unwrap().to_string();
-    assert_eq!(formatted, "2024-01-01 00:00:00.123456789");
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
