@@ -589,7 +589,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             // Get local IPs for comparison
             let local_ips = app.ptp_tracker.get_local_ips();
             // Define the width for label alignment
-            const LABEL_WIDTH: usize = 22; // Width for "Follow-Up Timestamp: "
+            const LABEL_WIDTH: usize = 22;
 
             let mut details_text = vec![
                 // Host details section
@@ -813,25 +813,25 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                         .add_modifier(Modifier::BOLD),
                 )]),
                 create_aligned_field(
-                    "  Announce: ".to_string(),
+                    "Announce: ".to_string(),
                     host.announce_count.to_string(),
                     LABEL_WIDTH,
                     theme,
                 ),
                 create_aligned_field(
-                    "  Sync/FU: ".to_string(),
+                    "Sync/FU: ".to_string(),
                     format!("{}/{}", host.sync_count, host.follow_up_count),
                     LABEL_WIDTH,
                     theme,
                 ),
                 create_aligned_field(
-                    "  Delay Req/Resp: ".to_string(),
+                    "Delay Req/Resp: ".to_string(),
                     format!("{}/{}", host.delay_req_count, host.delay_resp_count),
                     LABEL_WIDTH,
                     theme,
                 ),
                 create_aligned_field(
-                    "  PDelay Req/Resp/FU: ".to_string(),
+                    "PDelay Req/Resp/FU: ".to_string(),
                     format!(
                         "{}/{}/{}",
                         host.pdelay_req_count,
@@ -842,7 +842,7 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                     theme,
                 ),
                 create_aligned_field(
-                    "  Management/Signaling: ".to_string(),
+                    "Management/Signaling: ".to_string(),
                     format!(
                         "{}/{}",
                         host.management_message_count, host.signaling_message_count
