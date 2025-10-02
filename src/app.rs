@@ -31,6 +31,7 @@ pub enum AppState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ActiveView {
     HostTable,
+    HostDetails,
     PacketHistory,
 }
 
@@ -128,6 +129,10 @@ pub struct App {
     pub modal_scroll_offset: usize,
     pub modal_visible_height: usize,
     pub force_redraw: bool,
+    pub host_details_scroll_offset: usize,
+    pub host_details_visible_height: usize,
+    pub host_selection_changed: bool,
+    pub packet_selection_changed: bool,
 }
 
 impl App {
@@ -168,6 +173,10 @@ impl App {
             modal_scroll_offset: 0,
             modal_visible_height: 10,
             force_redraw: false,
+            host_details_scroll_offset: 0,
+            host_details_visible_height: 10,
+            host_selection_changed: true,
+            packet_selection_changed: true,
         };
 
         // Set the max packet history on the tracker
@@ -268,22 +277,30 @@ impl App {
         match key_code {
             KeyCode::Tab => {
                 self.active_view = match self.active_view {
-                    ActiveView::HostTable => ActiveView::PacketHistory,
+                    ActiveView::HostTable => ActiveView::HostDetails,
+                    ActiveView::HostDetails => ActiveView::PacketHistory,
                     ActiveView::PacketHistory => ActiveView::HostTable,
                 };
-                // Select most recent packet when switching to packet history
+                // When switching to packet history, preserve selection unless it's invalid
                 if matches!(self.active_view, ActiveView::PacketHistory) {
                     let packet_count = self.get_packet_history().len();
                     if packet_count > 0 {
-                        self.selected_packet_index = packet_count - 1;
+                        // Only reset to most recent if current selection is out of bounds
+                        if self.selected_packet_index >= packet_count {
+                            self.selected_packet_index = packet_count - 1;
+                            self.packet_selection_changed = true;
+                        }
+                        // If we have a valid selection, keep it but ensure it's visible
+                        if !self.packet_selection_changed {
+                            self.packet_selection_changed = true; // Ensure visibility check
+                        }
                     } else {
                         self.selected_packet_index = 0;
                     }
                     self.auto_scroll_packets = false;
-                    self.ensure_packet_visible();
-                } else {
-                    self.auto_scroll_packets = true;
                 }
+                // Don't automatically enable auto-scroll when leaving PacketHistory
+                // This preserves the user's packet selection when they TAB back
             }
             KeyCode::Char('q') => {
                 self.state = AppState::Quitting;
@@ -319,6 +336,8 @@ impl App {
                 self.ptp_tracker.clear_all_packet_histories();
                 self.selected_index = 0;
                 self.selected_host_id = None;
+                self.host_selection_changed = true;
+                self.packet_selection_changed = true;
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.show_packet_modal {
@@ -326,6 +345,7 @@ impl App {
                 } else {
                     match self.active_view {
                         ActiveView::HostTable => self.move_selection_up(),
+                        ActiveView::HostDetails => self.scroll_host_details_up(),
                         ActiveView::PacketHistory => self.move_packet_selection_up(),
                     }
                 }
@@ -336,6 +356,7 @@ impl App {
                 } else {
                     match self.active_view {
                         ActiveView::HostTable => self.move_selection_down(),
+                        ActiveView::HostDetails => self.scroll_host_details_down(),
                         ActiveView::PacketHistory => self.move_packet_selection_down(),
                     }
                 }
@@ -346,6 +367,7 @@ impl App {
                 } else {
                     match self.active_view {
                         ActiveView::HostTable => self.move_selection_page_up(),
+                        ActiveView::HostDetails => self.scroll_host_details_page_up(),
                         ActiveView::PacketHistory => self.move_packet_selection_page_up(),
                     }
                 }
@@ -356,6 +378,7 @@ impl App {
                 } else {
                     match self.active_view {
                         ActiveView::HostTable => self.move_selection_page_down(self.visible_height),
+                        ActiveView::HostDetails => self.scroll_host_details_page_down(),
                         ActiveView::PacketHistory => self.move_packet_selection_page_down(),
                     }
                 }
@@ -373,6 +396,7 @@ impl App {
                 } else {
                     match self.active_view {
                         ActiveView::HostTable => self.move_selection_to_top(),
+                        ActiveView::HostDetails => self.scroll_host_details_to_top(),
                         ActiveView::PacketHistory => self.move_packet_selection_to_top(),
                     }
                 }
@@ -383,6 +407,7 @@ impl App {
                 } else {
                     match self.active_view {
                         ActiveView::HostTable => self.move_selection_to_bottom(self.visible_height),
+                        ActiveView::HostDetails => self.scroll_host_details_to_bottom(),
                         ActiveView::PacketHistory => self.move_packet_selection_to_bottom(),
                     }
                 }
@@ -456,9 +481,6 @@ impl App {
 
     /// Helper method to update the selected host ID and reset packet scroll offset
     fn update_selected_host(&mut self, index: usize) {
-        self.packet_scroll_offset = 0;
-        self.selected_index = index;
-
         // Get the host clock identity based on current view mode
         let host_clock_identity = if self.tree_view_mode {
             // In tree mode, get the clock identity from the tree structure
@@ -468,11 +490,33 @@ impl App {
             self.get_hosts().get(index).map(|host| host.clock_identity)
         };
 
-        if let Some(clock_identity) = host_clock_identity {
-            self.selected_host_id = Some(clock_identity);
+        let new_host_id = if let Some(clock_identity) = host_clock_identity {
+            Some(clock_identity)
         } else {
-            // If index is out of bounds, clear selection
-            self.selected_host_id = None;
+            None
+        };
+
+        // Check if the host actually changed before updating
+        let host_changed = self.selected_host_id != new_host_id;
+
+        if host_changed {
+            self.packet_scroll_offset = 0;
+            self.host_details_scroll_offset = 0;
+            self.host_selection_changed = true;
+            self.packet_selection_changed = true;
+        }
+
+        self.selected_index = index;
+        self.selected_host_id = new_host_id;
+
+        // Reset to most recent packet when host changes (after host ID is updated)
+        if host_changed {
+            let packet_count = self.get_packet_history().len();
+            if packet_count > 0 {
+                self.selected_packet_index = packet_count - 1;
+            } else {
+                self.selected_packet_index = 0;
+            }
         }
     }
 
@@ -569,6 +613,7 @@ impl App {
         // Ensure selection is within bounds
         if self.selected_index >= total_hosts {
             self.selected_index = total_hosts.saturating_sub(1);
+            self.host_selection_changed = true;
         }
 
         // Calculate the maximum scroll offset that still shows content
@@ -614,7 +659,7 @@ impl App {
 
         if self.selected_index != old_index {
             self.update_selected_host(self.selected_index);
-            self.ensure_host_visible(20);
+            self.host_selection_changed = true;
         }
     }
 
@@ -1092,7 +1137,7 @@ impl App {
         if self.selected_packet_index > 0 {
             self.selected_packet_index -= 1;
             self.auto_scroll_packets = false;
-            self.ensure_packet_visible();
+            self.packet_selection_changed = true;
         }
     }
 
@@ -1101,40 +1146,52 @@ impl App {
         if packet_count > 0 && self.selected_packet_index < packet_count - 1 {
             self.selected_packet_index += 1;
             self.auto_scroll_packets = false;
-            self.ensure_packet_visible();
+            self.packet_selection_changed = true;
         }
     }
 
     fn move_packet_selection_page_up(&mut self) {
         let visible_height = self.visible_packet_height;
+        let old_index = self.selected_packet_index;
         self.selected_packet_index = self.selected_packet_index.saturating_sub(visible_height);
         self.auto_scroll_packets = false;
-        self.ensure_packet_visible();
+        if self.selected_packet_index != old_index {
+            self.packet_selection_changed = true;
+        }
     }
 
     fn move_packet_selection_page_down(&mut self) {
         let packet_count = self.get_packet_history().len();
         let visible_height = self.visible_packet_height;
         if packet_count > 0 {
+            let old_index = self.selected_packet_index;
             self.selected_packet_index =
                 (self.selected_packet_index + visible_height).min(packet_count - 1);
             self.auto_scroll_packets = false;
-            self.ensure_packet_visible();
+            if self.selected_packet_index != old_index {
+                self.packet_selection_changed = true;
+            }
         }
     }
 
     fn move_packet_selection_to_top(&mut self) {
+        let old_index = self.selected_packet_index;
         self.selected_packet_index = 0;
-        self.packet_scroll_offset = 0;
         self.auto_scroll_packets = false;
+        if self.selected_packet_index != old_index {
+            self.packet_selection_changed = true;
+        }
     }
 
     fn move_packet_selection_to_bottom(&mut self) {
         let packet_count = self.get_packet_history().len();
         if packet_count > 0 {
+            let old_index = self.selected_packet_index;
             self.selected_packet_index = packet_count - 1;
             self.auto_scroll_packets = false;
-            self.ensure_packet_visible();
+            if self.selected_packet_index != old_index {
+                self.packet_selection_changed = true;
+            }
         }
     }
 
@@ -1225,5 +1282,37 @@ impl App {
         // Ensure we can always see the last line when scrolled to bottom
         let max_scroll = total_lines.saturating_sub(visible_height);
         self.modal_scroll_offset = self.modal_scroll_offset.min(max_scroll);
+    }
+
+    // Host details scroll methods
+    fn scroll_host_details_up(&mut self) {
+        if self.host_details_scroll_offset > 0 {
+            self.host_details_scroll_offset -= 1;
+        }
+    }
+
+    fn scroll_host_details_down(&mut self) {
+        self.host_details_scroll_offset += 1;
+        // Bounds will be enforced in the UI rendering
+    }
+
+    fn scroll_host_details_page_up(&mut self) {
+        self.host_details_scroll_offset = self
+            .host_details_scroll_offset
+            .saturating_sub(self.host_details_visible_height);
+    }
+
+    fn scroll_host_details_page_down(&mut self) {
+        self.host_details_scroll_offset += self.host_details_visible_height;
+        // Bounds will be enforced in the UI rendering
+    }
+
+    fn scroll_host_details_to_top(&mut self) {
+        self.host_details_scroll_offset = 0;
+    }
+
+    fn scroll_host_details_to_bottom(&mut self) {
+        // This will be properly set when clamp_host_details_scroll is called with actual dimensions
+        self.host_details_scroll_offset = usize::MAX; // Will be clamped to show last line
     }
 }

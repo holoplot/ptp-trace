@@ -320,8 +320,11 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     // Store visible height in app for key handling
     app.set_visible_height(visible_height);
 
-    // Ensure the selected item is visible
-    app.ensure_host_visible(visible_height);
+    // Only ensure the selected item is visible if selection changed
+    if app.host_selection_changed {
+        app.ensure_host_visible(visible_height);
+        app.host_selection_changed = false;
+    }
 
     let theme = &app.theme;
     let _is_focused = true; // Hosts are always focused now
@@ -460,6 +463,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
 
     let view_indicator = match app.active_view {
         ActiveView::HostTable => " [ACTIVE - TAB to switch]",
+        ActiveView::HostDetails => " [TAB to switch]",
         ActiveView::PacketHistory => " [TAB to switch]",
     };
 
@@ -488,6 +492,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                 .border_type(BorderType::Rounded)
                 .border_style(match app.active_view {
                     ActiveView::HostTable => Style::default().fg(theme.border_focused),
+                    ActiveView::HostDetails => Style::default().fg(theme.border_normal),
                     ActiveView::PacketHistory => Style::default().fg(theme.border_normal),
                 }),
         )
@@ -582,6 +587,9 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
+    // Calculate visible content area accounting for borders
+    let content_height = area.height.saturating_sub(2) as usize; // Subtract top and bottom borders
+
     let theme = &app.theme;
 
     let details_text = if let Some(ref selected_host_id) = app.selected_host_id {
@@ -865,22 +873,57 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
             Line::from("No host selected"),
             Line::from(""),
             Line::from("Use ↑/↓ to select a host"),
-            Line::from("Press Tab to switch to packet panel"),
+            Line::from("Press Tab to switch between views"),
         ]
     };
 
-    let details_paragraph = Paragraph::new(details_text)
+    // Update scroll position - need to do this after we have the content but before we use it
+    let total_lines = details_text.len();
+    let max_scroll = total_lines.saturating_sub(content_height);
+    app.host_details_visible_height = content_height;
+    app.host_details_scroll_offset = app.host_details_scroll_offset.min(max_scroll);
+
+    // Create scrolled content
+    let scrolled_text = if app.host_details_scroll_offset < details_text.len() {
+        details_text
+            .iter()
+            .skip(app.host_details_scroll_offset)
+            .take(content_height)
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
+
+    let theme = &app.theme;
+    let border_style = if matches!(app.active_view, crate::app::ActiveView::HostDetails) {
+        Style::default().fg(theme.border_focused)
+    } else {
+        Style::default().fg(theme.border_normal)
+    };
+
+    let details_paragraph = Paragraph::new(scrolled_text)
         .style(Style::default().fg(theme.text_primary).bg(theme.background))
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .title("Host Details")
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme.border_normal)),
+                .border_style(border_style),
         )
         .wrap(Wrap { trim: true });
 
     f.render_widget(details_paragraph, area);
+
+    // Render scrollbar if needed
+    render_scrollbar(
+        f,
+        area,
+        details_text.len(),
+        app.host_details_scroll_offset,
+        content_height,
+        theme,
+    );
 }
 
 fn render_help(f: &mut Frame, area: Rect, app: &App) {
@@ -906,10 +949,10 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
                 .fg(theme.table_header)
                 .add_modifier(Modifier::BOLD),
         )]),
-        Line::from("  Tab        - Switch between host table and packet history"),
-        Line::from("  ↑/k        - Move selection up (in active view)"),
-        Line::from("  ↓/j        - Move selection down (in active view)"),
-        Line::from("  PgUp/PgDn  - Page up/down (10 items)"),
+        Line::from("  Tab        - Cycle: Host Table → Host Details → Packet History"),
+        Line::from("  ↑/k        - Move selection up (host table) or scroll (details/packets)"),
+        Line::from("  ↓/j        - Move selection down (host table) or scroll (details/packets)"),
+        Line::from("  PgUp/PgDn  - Page up/down (10 items or 1 page scroll)"),
         Line::from("  Home/End   - Jump to top/bottom"),
         Line::from("  Enter      - Show packet details (when packet history active)"),
         Line::from("  ↑↓/k/j     - Scroll modal content (when modal open)"),
@@ -927,9 +970,11 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from("  c          - Clear all hosts and packet histories"),
         Line::from("  x          - Clear packet history for selected host"),
         Line::from("  p          - Toggle pause mode"),
+        Line::from("  w          - Toggle packet auto-scroll"),
         Line::from("  s          - Cycle host table sorting"),
         Line::from("  a          - Previous sort column"),
         Line::from("  S          - Reverse sort direction"),
+        Line::from("  t          - Toggle tree view mode"),
         Line::from("  e          - Toggle expanded packet history"),
         Line::from("  d          - Toggle debug mode"),
         Line::from(""),
@@ -941,6 +986,17 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         )]),
         Line::from("  h/F1       - Show/hide this help"),
         Line::from("  q/Esc      - Quit application"),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Notes:",
+            Style::default()
+                .fg(theme.table_header)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from("  • Host details and packet history are scrollable"),
+        Line::from("  • Packet selection preserved when switching views"),
+        Line::from("  • Scroll positions reset when selecting different host"),
+        Line::from("  • Auto-scroll disabled when manually navigating packets"),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Legend:",
@@ -1108,9 +1164,11 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
             app.packet_scroll_offset = max_scroll;
         }
     } else if matches!(app.active_view, ActiveView::PacketHistory) && !app.show_packet_modal {
-        // Ensure selected packet is visible when in packet history view
-        // But don't adjust if modal is open to keep selection stable
-        app.ensure_packet_visible();
+        // Only ensure selected packet is visible if selection changed
+        if app.packet_selection_changed {
+            app.ensure_packet_visible();
+            app.packet_selection_changed = false;
+        }
     }
 
     // Get theme reference after mutable operations
@@ -1126,6 +1184,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     let view_indicator = match app.active_view {
         ActiveView::PacketHistory => " [ACTIVE - TAB to switch]",
         ActiveView::HostTable => " [TAB to switch]",
+        ActiveView::HostDetails => " [TAB to switch]",
     };
 
     let expanded_status = if app.is_packet_history_expanded() {
@@ -1150,6 +1209,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     let border_style = match app.active_view {
         ActiveView::PacketHistory => Style::default().fg(theme.border_focused),
         ActiveView::HostTable => Style::default().fg(theme.border_normal),
+        ActiveView::HostDetails => Style::default().fg(theme.border_normal),
     };
 
     let block = Block::default()
