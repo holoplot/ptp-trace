@@ -133,27 +133,41 @@ sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix
 ## 🎮 Controls
 
 ### 🎮 **Navigation**
-- `↑` / `k` - 📈 Move selection up
-- `↓` / `j` - 📉 Move selection down
-- `PgUp` / `PgDn` - 📄 Page navigation (10 items)
+- `Tab` - 🔄 Cycle between views: Host Table → Host Details → Packet History
+- `↑` / `k` - 📈 Move selection up (host table) or scroll up (details/packets)
+- `↓` / `j` - 📉 Move selection down (host table) or scroll down (details/packets)
+- `PgUp` / `PgDn` - 📄 Page navigation (10 items) or scroll by page
 - `Home` / `End` - 🏠 Jump to top/bottom
+- `Enter` - 📋 Show packet details modal (when packet history is active)
 
 ### 📊 **Table Operations**
 - `s` - 🔄 Cycle sort columns
 - `S` - ↕️ Toggle sort direction
+- `a` - ⬅️ Previous sort column
+- `t` - 🌳 Toggle tree view mode
 - Green headers indicate active sort column
 
 ### 🎬 **Actions**
 - `r` - 🔄 Refresh/rescan network
+- `Ctrl+L` - 🔄 Refresh/redraw screen
 - `c` - 🗑️ Clear hosts and packet history
+- `x` - 🗑️ Clear packet history for selected host
 - `p` - ⏸️ Toggle pause mode (stops network parsing, shows "PAUSED" in header)
+- `w` - 🔄 Toggle packet auto-scroll
 - `e` - 📊 Toggle expanded packet history
 - `d` - 🐛 Toggle debug mode
 
 ### ℹ️ **Help & Exit**
 - `h` / `F1` - ❓ Show/hide help
-- `Esc` - 🚪 Close help or quit
+- `Esc` - 🚪 Close help/modal or quit
 - `q` - 🚫 Quit application
+
+### 📋 **Interface Behavior**
+- **Three-way navigation**: Use `Tab` to cycle between Host Table, Host Details, and Packet History
+- **Scrollable views**: Host Details and Packet History are fully scrollable with arrow keys, Page Up/Down, Home/End
+- **Preserved selections**: Packet selection is maintained when switching views until you select a different host
+- **Auto-scroll control**: Packet auto-scroll is disabled when manually navigating, re-enable with `w`
+- **Smart resets**: Scroll positions reset to top when selecting a different host
 
 ## 🎨 Themes
 
