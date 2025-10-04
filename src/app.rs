@@ -490,11 +490,7 @@ impl App {
             self.get_hosts().get(index).map(|host| host.clock_identity)
         };
 
-        let new_host_id = if let Some(clock_identity) = host_clock_identity {
-            Some(clock_identity)
-        } else {
-            None
-        };
+        let new_host_id = host_clock_identity;
 
         // Check if the host actually changed before updating
         let host_changed = self.selected_host_id != new_host_id;
