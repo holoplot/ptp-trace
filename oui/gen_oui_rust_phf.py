@@ -35,7 +35,10 @@ def fetch_bytes_http(url: str) -> bytes:
                 return r.read()
         except HTTPError as e:
             if e.code == 418 and attempt < 9:
-                print(f"Got HTTP 418 (I'm a teapot) for {url}, attempt {attempt + 1}/10. Retrying...", file=sys.stderr)
+                print(
+                    f"Got HTTP 418 (I'm a teapot) for {url}, attempt {attempt + 1}/10. Retrying...",
+                    file=sys.stderr,
+                )
                 time.sleep(5)
                 continue
             else:
@@ -189,6 +192,12 @@ def main():
     rows: List[Tuple[int, int, str]] = []
     for url, reg in ((SRC_MAL, "MA-L"), (SRC_MAM, "MA-M"), (SRC_MAS, "MA-S")):
         rows.extend(parse_registry(fetch_bytes_http(url), reg))
+
+    print(
+        f"Successfully retrieved and processed OUI data from IEEE registries.",
+        file=sys.stderr,
+    )
+    print(f"Total entries processed: {len(rows)}", file=sys.stderr)
 
     unique = dedupe_keep_first(rows)
     mal = sorted(((v, org) for (b, v), org in unique.items() if b == 24), key=lambda x: x[0])
