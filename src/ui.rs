@@ -1237,6 +1237,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     let headers = Row::new(vec![
         Cell::from("Time Ago"),
         Cell::from("VLAN"),
+        Cell::from("TTL"),
         Cell::from("Source IP"),
         Cell::from("Port"),
         Cell::from("Interface"),
@@ -1293,6 +1294,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                     Some(id) => id.to_string(),
                     None => "-".to_string(),
                 }),
+                Cell::from(packet.raw.ttl.to_string()),
                 Cell::from(match packet.raw.source_addr {
                     std::net::SocketAddr::V4(a) => a.ip().to_string(),
                     _ => "-".to_string(),
@@ -1322,6 +1324,7 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
     let widths = [
         Constraint::Length(10),  // Time Ago
         Constraint::Length(5),   // VLAN
+        Constraint::Length(5),   // TTL
         Constraint::Length(15),  // Source IP
         Constraint::Length(5),   // Port
         Constraint::Length(10),  // Interface
@@ -1477,6 +1480,12 @@ fn render_packet_details(
                 packet.raw.dest_mac[4],
                 packet.raw.dest_mac[5]
             ),
+            LABEL_WIDTH,
+            theme,
+        ),
+        create_aligned_field(
+            "TTL:".to_string(),
+            packet.raw.ttl.to_string(),
             LABEL_WIDTH,
             theme,
         ),

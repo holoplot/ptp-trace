@@ -30,6 +30,7 @@ pub struct RawPacket {
     pub dest_addr: std::net::SocketAddr,
     pub dest_mac: [u8; 6],
     pub vlan_id: Option<u16>,
+    pub ttl: u8,
     pub interface_name: String,
     pub ptp_payload: Vec<u8>,
 }
@@ -244,6 +245,8 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
         return None;
     }
 
+    let ttl = ipv4_packet.get_ttl();
+
     let source_mac = ethernet.get_source().octets();
     let dest_mac = ethernet.get_destination().octets();
     let source_ip = ipv4_packet.get_source();
@@ -264,6 +267,7 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
         dest_addr,
         dest_mac,
         vlan_id,
+        ttl,
         interface_name: interface_name.to_string(),
         ptp_payload,
     })
