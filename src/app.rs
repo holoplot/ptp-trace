@@ -46,6 +46,7 @@ pub enum SortColumn {
     SelectedTransmitter,
     MessageCount,
     LastSeen,
+    Vendor,
 }
 
 impl SortColumn {
@@ -53,7 +54,8 @@ impl SortColumn {
         match self {
             SortColumn::State => SortColumn::ClockIdentity,
             SortColumn::ClockIdentity => SortColumn::IpAddress,
-            SortColumn::IpAddress => SortColumn::Domain,
+            SortColumn::IpAddress => SortColumn::Vendor,
+            SortColumn::Vendor => SortColumn::Domain,
             SortColumn::Domain => SortColumn::Priority,
             SortColumn::Priority => SortColumn::ClockClass,
             SortColumn::ClockClass => SortColumn::SelectedTransmitter,
@@ -70,7 +72,8 @@ impl SortColumn {
             SortColumn::SelectedTransmitter => SortColumn::ClockClass,
             SortColumn::ClockClass => SortColumn::Priority,
             SortColumn::Priority => SortColumn::Domain,
-            SortColumn::Domain => SortColumn::IpAddress,
+            SortColumn::Domain => SortColumn::Vendor,
+            SortColumn::Vendor => SortColumn::IpAddress,
             SortColumn::IpAddress => SortColumn::ClockIdentity,
             SortColumn::ClockIdentity => SortColumn::State,
             SortColumn::State => SortColumn::LastSeen,
@@ -79,9 +82,10 @@ impl SortColumn {
 
     pub fn display_name(&self) -> &'static str {
         match self {
+            SortColumn::State => "State",
             SortColumn::ClockIdentity => "Clock Identity",
             SortColumn::IpAddress => "IP Address",
-            SortColumn::State => "State",
+            SortColumn::Vendor => "Vendor",
             SortColumn::Domain => "Domain",
             SortColumn::Priority => "Priority",
             SortColumn::ClockClass => "Clock Class",
@@ -785,6 +789,11 @@ impl App {
                     .total_messages_sent_count
                     .cmp(&b.total_messages_sent_count),
                 SortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
+                SortColumn::Vendor => {
+                    let a_vendor = a.get_vendor_name().unwrap_or("");
+                    let b_vendor = b.get_vendor_name().unwrap_or("");
+                    a_vendor.cmp(&b_vendor)
+                }
             };
 
             if self.sort_ascending {
@@ -943,6 +952,11 @@ impl App {
                 .total_messages_sent_count
                 .cmp(&b.total_messages_sent_count),
             SortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
+            SortColumn::Vendor => {
+                let a_vendor = a.get_vendor_name().unwrap_or("");
+                let b_vendor = b.get_vendor_name().unwrap_or("");
+                a_vendor.cmp(&b_vendor)
+            }
         };
 
         if self.sort_ascending {
