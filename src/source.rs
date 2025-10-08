@@ -536,10 +536,6 @@ pub async fn create_pcap(pcap_path: &str) -> Result<RawSocketReceiver> {
         pcap_path
     );
 
-    if let Some(last_ts) = last_timestamp {
-        println!("Last packet timestamp: {:?}", last_ts);
-    }
-
     Ok(RawSocketReceiver {
         source: PacketSource::Pcap {
             packets,
