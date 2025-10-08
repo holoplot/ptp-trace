@@ -1,7 +1,8 @@
-//! Cross-platform raw socket implementation for PTP traffic capture
+//! Cross-platform raw socket implementation for PTP and gPTP traffic capture
 //!
 //! This module implements packet capture using pnet for cross-platform
 //! promiscuous mode support. Works on Linux, macOS, and Windows.
+//! Supports both PTP over UDP (Layer 3) and gPTP over Ethernet (Layer 2).
 
 use anyhow::Result;
 use pnet::datalink::{self, Channel, Config};
@@ -20,17 +21,21 @@ use tokio::time::Duration;
 const PTP_EVENT_PORT: u16 = 319;
 const PTP_GENERAL_PORT: u16 = 320;
 const PTP_MULTICAST_ADDR: &str = "224.0.1.129";
+/// gPTP (generalized Precision Time Protocol) EtherType for Layer 2 transport
+const GPTP_ETHERTYPE: u16 = 0x88f7;
+/// gPTP multicast MAC address (IEEE 802.1AS)
+const GPTP_MULTICAST_MAC: [u8; 6] = [0x01, 0x80, 0xc2, 0x00, 0x00, 0x0e];
 
 #[derive(Debug, Clone)]
 pub struct RawPacket {
     pub timestamp: std::time::SystemTime,
     pub data: Vec<u8>,
-    pub source_addr: std::net::SocketAddr,
+    pub source_addr: Option<std::net::SocketAddr>,
     pub source_mac: [u8; 6],
-    pub dest_addr: std::net::SocketAddr,
+    pub dest_addr: Option<std::net::SocketAddr>,
     pub dest_mac: [u8; 6],
     pub vlan_id: Option<u16>,
-    pub ttl: u8,
+    pub ttl: Option<u8>,
     pub interface_name: String,
     pub ptp_payload: Vec<u8>,
 }
@@ -225,52 +230,91 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
         }
     }
 
-    // Check if this is an IPv4 packet
-    if ethertype != EtherTypes::Ipv4 {
-        return None;
+    // Check if this is gPTP (Layer 2) or PTP over UDP (Layer 3)
+    if ethertype.0 == GPTP_ETHERTYPE {
+        // Handle gPTP (IEEE 802.1AS - Layer 2 transport)
+        // gPTP uses Ethernet frames directly without IP/UDP encapsulation
+        let source_mac = ethernet.get_source().octets();
+        let dest_mac = ethernet.get_destination().octets();
+
+        // Optional filtering: accept gPTP multicast or any unicast gPTP traffic
+        // gPTP typically uses multicast address 01:80:c2:00:00:0e but can also be unicast
+        if dest_mac != GPTP_MULTICAST_MAC && dest_mac[0] & 0x01 == 0x01 {
+            // Skip non-gPTP multicast packets (but allow unicast)
+            return None;
+        }
+
+        // For gPTP, we don't have IP addresses, so use None
+        let source_addr = None;
+        let dest_addr = None;
+
+        // gPTP payload starts directly after ethernet header (and VLAN if present)
+        let ptp_payload = payload_data.to_vec();
+
+        Some(RawPacket {
+            timestamp: SystemTime::now(),
+            data: packet_data.to_vec(),
+            source_addr,
+            source_mac,
+            dest_addr,
+            dest_mac,
+            vlan_id,
+            ttl: None, // No TTL in Layer 2
+            interface_name: interface_name.to_string(),
+            ptp_payload,
+        })
+    } else if ethertype == EtherTypes::Ipv4 {
+        // Handle PTP over UDP (existing code)
+        let ipv4_packet = Ipv4Packet::new(payload_data)?;
+
+        // Check if this is UDP
+        if ipv4_packet.get_next_level_protocol() != IpNextHeaderProtocols::Udp {
+            return None;
+        }
+
+        let udp_packet = UdpPacket::new(ipv4_packet.payload())?;
+
+        // Filter for PTP ports
+        let dest_port = udp_packet.get_destination();
+        if dest_port != PTP_EVENT_PORT && dest_port != PTP_GENERAL_PORT {
+            return None;
+        }
+
+        let ttl = Some(ipv4_packet.get_ttl());
+
+        let source_mac = ethernet.get_source().octets();
+        let dest_mac = ethernet.get_destination().octets();
+        let source_ip = ipv4_packet.get_source();
+        let dest_ip = ipv4_packet.get_destination();
+        let source_port = udp_packet.get_source();
+
+        let source_addr = Some(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+            source_ip,
+            source_port,
+        )));
+        let dest_addr = Some(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+            dest_ip, dest_port,
+        )));
+
+        // Extract PTP payload
+        let ptp_payload = udp_packet.payload().to_vec();
+
+        Some(RawPacket {
+            timestamp: SystemTime::now(),
+            data: packet_data.to_vec(),
+            source_addr,
+            source_mac,
+            dest_addr,
+            dest_mac,
+            vlan_id,
+            ttl,
+            interface_name: interface_name.to_string(),
+            ptp_payload,
+        })
+    } else {
+        // Not PTP or gPTP
+        None
     }
-
-    let ipv4_packet = Ipv4Packet::new(payload_data)?;
-
-    // Check if this is UDP
-    if ipv4_packet.get_next_level_protocol() != IpNextHeaderProtocols::Udp {
-        return None;
-    }
-
-    let udp_packet = UdpPacket::new(ipv4_packet.payload())?;
-
-    // Filter for PTP ports
-    let dest_port = udp_packet.get_destination();
-    if dest_port != PTP_EVENT_PORT && dest_port != PTP_GENERAL_PORT {
-        return None;
-    }
-
-    let ttl = ipv4_packet.get_ttl();
-
-    let source_mac = ethernet.get_source().octets();
-    let dest_mac = ethernet.get_destination().octets();
-    let source_ip = ipv4_packet.get_source();
-    let dest_ip = ipv4_packet.get_destination();
-    let source_port = udp_packet.get_source();
-
-    let source_addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(source_ip, source_port));
-    let dest_addr = std::net::SocketAddr::V4(std::net::SocketAddrV4::new(dest_ip, dest_port));
-
-    // Extract PTP payload
-    let ptp_payload = udp_packet.payload().to_vec();
-
-    Some(RawPacket {
-        timestamp: SystemTime::now(),
-        data: packet_data.to_vec(),
-        source_addr,
-        source_mac,
-        dest_addr,
-        dest_mac,
-        vlan_id,
-        ttl,
-        interface_name: interface_name.to_string(),
-        ptp_payload,
-    })
 }
 
 async fn capture_on_interface(

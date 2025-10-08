@@ -17,8 +17,9 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - ⏸️ Pause mode to temporarily stop network parsing for UI inspection
 
 ### 🌐 **Network Monitoring**
-- 🔍 Automatic PTP host discovery on port 319 and 320
+- 🔍 Automatic PTP and gPTP host discovery (UDP ports 319/320 and Ethernet 0x88f7)
 - 📡 **Cross-platform packet capture** - Uses pnet for live capturing on Linux, macOS, and Windows
+- 🌐 **Dual protocol support** - Handles both PTP over UDP (Layer 3) and gPTP over Ethernet (Layer 2, IEEE 802.1AS)
 - 📄 **PCAP file support** - Read and analyze PTP packets from captured pcap files (offline analysis mode)
 - 🌐 **Multicast group membership** - Ensures network interfaces receive multicast PTP traffic
 - 🔍 **Full packet analysis** - Records both raw packet data and parsed PTP content
@@ -54,10 +55,10 @@ PTP Trace supports offline analysis of PTP traffic from pcap files in offline mo
 ### Creating PCAP Files:
 ```bash
 # Capture PTP traffic with tcpdump (Linux/macOS)
-sudo tcpdump -i eth0 -w ptp_capture.pcap 'udp port 319 or udp port 320'
+sudo tcpdump -i eth0 -w ptp_capture.pcap 'udp port 319 or udp port 320 or ether proto 0x88f7'
 
 # Capture with Wireshark (all platforms)
-# Filter: udp.port == 319 or udp.port == 320
+# Filter: udp.port == 319 or udp.port == 320 or eth.type == 0x88f7
 # Save as: ptp_capture.pcap
 
 # Analyze the captured file

@@ -89,7 +89,7 @@ fn create_host_row<'a>(
             format!("{}", primary_ip)
         }
     } else {
-        "N/A".to_string()
+        "-".to_string()
     };
 
     let priority1_display = match &host.state {
@@ -604,30 +604,48 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
 
             let mut details_text = vec![
                 // Host details section
-                create_aligned_field_with_vendor(
+                create_aligned_field(
                     "Clock Identity: ".to_string(),
                     host.clock_identity.to_string(),
-                    host.get_vendor_name()
-                        .map(|vendor| format!(" ({})", vendor))
-                        .unwrap_or_default(),
                     LABEL_WIDTH,
                     theme,
-                    theme.text_primary,
+                ),
+                create_aligned_field(
+                    "Vendor: ".to_string(),
+                    host.get_vendor_name().unwrap_or("-").to_string(),
+                    LABEL_WIDTH,
+                    theme,
                 ),
             ];
 
             // Add IP addresses with interface info - each on its own row with "IP Address:" label
-            for (ip, interfaces) in host.ip_addresses.iter() {
-                let s = interfaces.join(", ");
+            if host.has_ip_addresses() {
+                for (ip, interfaces) in host.ip_addresses.iter() {
+                    let s = interfaces.join(", ");
 
-                let ip_display = if local_ips.contains(ip) {
-                    format!("{} ({}) *", ip, s)
-                } else {
-                    format!("{} ({})", ip, s)
-                };
+                    let ip_display = if local_ips.contains(ip) {
+                        format!("{} ({}) *", ip, s)
+                    } else {
+                        format!("{} ({})", ip, s)
+                    };
+                    details_text.push(create_aligned_field(
+                        "IP Address: ".to_string(),
+                        ip_display,
+                        LABEL_WIDTH,
+                        theme,
+                    ));
+                }
+            } else if !host.get_interfaces().is_empty() {
+                // Show interfaces for gPTP hosts without IP addresses
+                let interfaces_display = host
+                    .get_interfaces()
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 details_text.push(create_aligned_field(
-                    "IP Address: ".to_string(),
-                    ip_display,
+                    "Interfaces: ".to_string(),
+                    interfaces_display,
                     LABEL_WIDTH,
                     theme,
                 ));
@@ -1297,13 +1315,18 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
                     Some(id) => id.to_string(),
                     None => "-".to_string(),
                 }),
-                Cell::from(packet.raw.ttl.to_string()),
+                Cell::from(
+                    packet
+                        .raw
+                        .ttl
+                        .map_or("-".to_string(), |ttl| ttl.to_string()),
+                ),
                 Cell::from(match packet.raw.source_addr {
-                    std::net::SocketAddr::V4(a) => a.ip().to_string(),
+                    Some(std::net::SocketAddr::V4(a)) => a.ip().to_string(),
                     _ => "-".to_string(),
                 }),
                 Cell::from(match packet.raw.source_addr {
-                    std::net::SocketAddr::V4(a) => a.port().to_string(),
+                    Some(std::net::SocketAddr::V4(a)) => a.port().to_string(),
                     _ => "-".to_string(),
                 }),
                 Cell::from(packet.raw.interface_name.clone()),
@@ -1448,7 +1471,10 @@ fn render_packet_details(
         )]),
         create_aligned_field(
             "Source Address:".to_string(),
-            packet.raw.source_addr.to_string(),
+            packet
+                .raw
+                .source_addr
+                .map_or("-".to_string(), |addr| addr.to_string()),
             LABEL_WIDTH,
             theme,
         ),
@@ -1468,7 +1494,10 @@ fn render_packet_details(
         ),
         create_aligned_field(
             "Dest Address:".to_string(),
-            packet.raw.dest_addr.to_string(),
+            packet
+                .raw
+                .dest_addr
+                .map_or("-".to_string(), |addr| addr.to_string()),
             LABEL_WIDTH,
             theme,
         ),
@@ -1488,7 +1517,10 @@ fn render_packet_details(
         ),
         create_aligned_field(
             "TTL:".to_string(),
-            packet.raw.ttl.to_string(),
+            packet
+                .raw
+                .ttl
+                .map_or("-".to_string(), |ttl| ttl.to_string()),
             LABEL_WIDTH,
             theme,
         ),

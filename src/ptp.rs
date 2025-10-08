@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::IpAddr,
     time::{Duration, Instant, SystemTime},
 };
@@ -376,6 +376,7 @@ impl PtpHostState {
 pub struct PtpHost {
     pub clock_identity: ClockIdentity,
     pub ip_addresses: HashMap<IpAddr, Vec<String>>,
+    pub interfaces: HashSet<String>, // For gPTP hosts without IP addresses
     pub domain_number: Option<u8>,
     pub last_version: Option<PtpVersion>,
     pub last_seen: SystemTime,
@@ -403,6 +404,7 @@ impl PtpHost {
         Self {
             clock_identity,
             ip_addresses: HashMap::new(),
+            interfaces: HashSet::new(),
             domain_number: None,
             last_seen: SystemTime::now(),
 
@@ -458,6 +460,18 @@ impl PtpHost {
         if !v.contains(&interface) {
             v.push(interface);
         }
+    }
+
+    pub fn add_interface(&mut self, interface: String) {
+        self.interfaces.insert(interface);
+    }
+
+    pub fn get_interfaces(&self) -> &HashSet<String> {
+        &self.interfaces
+    }
+
+    pub fn has_ip_addresses(&self) -> bool {
+        !self.ip_addresses.is_empty()
     }
 
     pub fn get_primary_ip(&self) -> Option<&IpAddr> {
@@ -603,11 +617,14 @@ impl PtpTracker {
             .entry(msg.header().source_port_identity.clock_identity)
             .or_insert_with(|| PtpHost::new(msg.header().source_port_identity.clock_identity));
 
-        // Add this IP address if it's not already known for this host
-        sending_host.add_ip_address(
-            raw_packet.source_addr.ip(),
-            packet.raw.interface_name.clone(),
-        );
+        // Add IP address or interface depending on packet type
+        if let Some(source_addr) = raw_packet.source_addr {
+            // PTP over UDP - add IP address
+            sending_host.add_ip_address(source_addr.ip(), packet.raw.interface_name.clone());
+        } else {
+            // gPTP - add interface only
+            sending_host.add_interface(packet.raw.interface_name.clone());
+        }
 
         sending_host.total_messages_sent_count += 1;
         sending_host.update_from_ptp_header(msg.header());
