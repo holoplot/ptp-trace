@@ -1110,6 +1110,10 @@ impl TryFrom<&[u8]> for PtpMessage {
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
         let header = PtpHeader::try_from(&data[..34])?;
 
+        if header.version != PtpVersion::V2 {
+            return Err(anyhow::anyhow!("Unsupported PTP version"));
+        }
+
         match header.message_type {
             PtpMessageType::Announce => Ok(PtpMessage::Announce(AnnounceMessage::try_from(data)?)),
             PtpMessageType::DelayReq => Ok(PtpMessage::DelayReq(DelayReqMessage::try_from(data)?)),
