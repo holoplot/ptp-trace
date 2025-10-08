@@ -792,7 +792,7 @@ impl App {
                 SortColumn::Vendor => {
                     let a_vendor = a.get_vendor_name().unwrap_or("");
                     let b_vendor = b.get_vendor_name().unwrap_or("");
-                    a_vendor.cmp(&b_vendor)
+                    a_vendor.cmp(b_vendor)
                 }
             };
 
@@ -955,7 +955,7 @@ impl App {
             SortColumn::Vendor => {
                 let a_vendor = a.get_vendor_name().unwrap_or("");
                 let b_vendor = b.get_vendor_name().unwrap_or("");
-                a_vendor.cmp(&b_vendor)
+                a_vendor.cmp(b_vendor)
             }
         };
 
