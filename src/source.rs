@@ -374,7 +374,7 @@ async fn capture_on_interface(
     Ok(())
 }
 
-pub async fn create_receiver(ifnames: &[String]) -> Result<RawSocketReceiver> {
+pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketReceiver> {
     // Get interfaces to monitor
     let target_interfaces = if ifnames.is_empty() {
         // Default to all available interfaces
@@ -454,7 +454,7 @@ pub async fn create_receiver(ifnames: &[String]) -> Result<RawSocketReceiver> {
     })
 }
 
-pub async fn create_pcap(pcap_path: &str) -> Result<RawSocketReceiver> {
+pub async fn create_pcap_receiver(pcap_path: &str) -> Result<RawSocketReceiver> {
     use pcap_file::pcap::PcapReader;
     use pcap_file::pcapng::PcapNgReader;
     use std::fs::File;
