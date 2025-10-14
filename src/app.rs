@@ -39,6 +39,7 @@ pub enum ActiveView {
 pub enum SortColumn {
     ClockIdentity,
     IpAddress,
+    Interface,
     State,
     Domain,
     Priority,
@@ -54,7 +55,8 @@ impl SortColumn {
         match self {
             SortColumn::State => SortColumn::ClockIdentity,
             SortColumn::ClockIdentity => SortColumn::IpAddress,
-            SortColumn::IpAddress => SortColumn::Vendor,
+            SortColumn::IpAddress => SortColumn::Interface,
+            SortColumn::Interface => SortColumn::Vendor,
             SortColumn::Vendor => SortColumn::Domain,
             SortColumn::Domain => SortColumn::Priority,
             SortColumn::Priority => SortColumn::ClockClass,
@@ -73,7 +75,8 @@ impl SortColumn {
             SortColumn::ClockClass => SortColumn::Priority,
             SortColumn::Priority => SortColumn::Domain,
             SortColumn::Domain => SortColumn::Vendor,
-            SortColumn::Vendor => SortColumn::IpAddress,
+            SortColumn::Vendor => SortColumn::Interface,
+            SortColumn::Interface => SortColumn::IpAddress,
             SortColumn::IpAddress => SortColumn::ClockIdentity,
             SortColumn::ClockIdentity => SortColumn::State,
             SortColumn::State => SortColumn::LastSeen,
@@ -85,6 +88,7 @@ impl SortColumn {
             SortColumn::State => "State",
             SortColumn::ClockIdentity => "Clock Identity",
             SortColumn::IpAddress => "IP Address",
+            SortColumn::Interface => "Interface",
             SortColumn::Vendor => "Vendor",
             SortColumn::Domain => "Domain",
             SortColumn::Priority => "Priority",
@@ -728,6 +732,11 @@ impl App {
                     let b_ip = b.get_primary_ip();
                     a_ip.cmp(&b_ip)
                 }
+                SortColumn::Interface => {
+                    let a_interfaces = a.get_interface_names().join(", ");
+                    let b_interfaces = b.get_interface_names().join(", ");
+                    a_interfaces.cmp(&b_interfaces)
+                }
                 SortColumn::State => {
                     let a_state_order = match &a.state {
                         PtpHostState::TimeTransmitter(_) => 0,
@@ -894,6 +903,11 @@ impl App {
                 let a_ip = a.get_primary_ip();
                 let b_ip = b.get_primary_ip();
                 a_ip.cmp(&b_ip)
+            }
+            SortColumn::Interface => {
+                let a_interfaces = a.get_interface_names().join(", ");
+                let b_interfaces = b.get_interface_names().join(", ");
+                a_interfaces.cmp(&b_interfaces)
             }
             SortColumn::State => {
                 let a_state_order = match &a.state {

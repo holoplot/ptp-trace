@@ -137,10 +137,25 @@ fn create_host_row<'a>(
         _ => Cell::from("-"),
     };
 
+    let interfaces_display = if let Some(primary_interface) = host.get_primary_interface() {
+        if host.has_multiple_interfaces() {
+            format!(
+                "{} (+{})",
+                primary_interface,
+                host.get_interface_count() - 1
+            )
+        } else {
+            primary_interface.to_string()
+        }
+    } else {
+        "-".to_string()
+    };
+
     Row::new(vec![
         Cell::from(state_display).style(Style::default().fg(state_color)),
         Cell::from(clock_identity_display),
         Cell::from(ip_display),
+        Cell::from(interfaces_display),
         Cell::from(host.get_vendor_name().unwrap_or("-")),
         Cell::from(
             host.domain_number
@@ -340,6 +355,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         (SortColumn::State, "State"),
         (SortColumn::ClockIdentity, "Clock Identity"),
         (SortColumn::IpAddress, "IP Address"),
+        (SortColumn::Interface, "Interfaces"),
         (SortColumn::Vendor, "Vendor"),
         (SortColumn::Domain, "Dom"),
         (SortColumn::Priority, "Pri"),
@@ -449,6 +465,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(5),  // State
         Constraint::Min(23),    // Clock Identity
         Constraint::Length(24), // IP Address
+        Constraint::Length(20), // Interfaces
         Constraint::Length(20), // Vendor
         Constraint::Length(3),  // Domain
         Constraint::Length(3),  // Priority

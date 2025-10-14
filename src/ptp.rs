@@ -470,6 +470,68 @@ impl PtpHost {
         &self.interfaces
     }
 
+    /// Returns a vector of all interface names the host was seen on
+    pub fn get_interface_names(&self) -> Vec<String> {
+        let mut interface_names = std::collections::HashSet::new();
+
+        // Add interfaces from the interfaces HashSet (for gPTP hosts)
+        for interface in &self.interfaces {
+            interface_names.insert(interface.clone());
+        }
+
+        // Add interfaces from IP addresses (for PTP over UDP)
+        for interfaces in self.ip_addresses.values() {
+            for interface in interfaces {
+                interface_names.insert(interface.clone());
+            }
+        }
+
+        let mut result: Vec<String> = interface_names.into_iter().collect();
+        result.sort();
+        result
+    }
+
+    /// Returns the number of interfaces the host was seen on
+    pub fn get_interface_count(&self) -> usize {
+        let mut interface_names = std::collections::HashSet::new();
+
+        // Add interfaces from the interfaces HashSet (for gPTP hosts)
+        for interface in &self.interfaces {
+            interface_names.insert(interface);
+        }
+
+        // Add interfaces from IP addresses (for PTP over UDP)
+        for interfaces in self.ip_addresses.values() {
+            for interface in interfaces {
+                interface_names.insert(interface);
+            }
+        }
+
+        interface_names.len()
+    }
+
+    /// Returns the first interface name the host was seen on, if any
+    pub fn get_primary_interface(&self) -> Option<&String> {
+        // First check the interfaces HashSet (for gPTP hosts)
+        if let Some(interface) = self.interfaces.iter().next() {
+            return Some(interface);
+        }
+
+        // Then check IP addresses (for PTP over UDP)
+        for interfaces in self.ip_addresses.values() {
+            if let Some(interface) = interfaces.first() {
+                return Some(interface);
+            }
+        }
+
+        None
+    }
+
+    /// Returns true if the host was seen on multiple interfaces
+    pub fn has_multiple_interfaces(&self) -> bool {
+        self.get_interface_count() > 1
+    }
+
     pub fn has_ip_addresses(&self) -> bool {
         !self.ip_addresses.is_empty()
     }
@@ -551,6 +613,98 @@ mod tests {
         host.add_ip_address(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1)), "eth2".to_string());
         assert_eq!(host.get_ip_count(), 3);
         assert!(host.has_multiple_ips());
+    }
+
+    #[test]
+    fn test_interface_collection() {
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let mut host = PtpHost::new(ClockIdentity::default());
+
+        // Initially should have no interfaces
+        assert_eq!(host.get_interface_count(), 0);
+        assert!(host.get_interface_names().is_empty());
+
+        // Add interface via IP address (PTP over UDP)
+        host.add_ip_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)), "eth0".to_string());
+        assert_eq!(host.get_interface_count(), 1);
+        let interfaces = host.get_interface_names();
+        assert_eq!(interfaces.len(), 1);
+        assert!(interfaces.contains(&"eth0".to_string()));
+
+        // Add another interface via IP address
+        host.add_ip_address(
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+            "eth1".to_string(),
+        );
+        assert_eq!(host.get_interface_count(), 2);
+        let interfaces = host.get_interface_names();
+        assert_eq!(interfaces.len(), 2);
+        assert!(interfaces.contains(&"eth0".to_string()));
+        assert!(interfaces.contains(&"eth1".to_string()));
+
+        // Add interface directly (gPTP)
+        host.add_interface("wlan0".to_string());
+        assert_eq!(host.get_interface_count(), 3);
+        let interfaces = host.get_interface_names();
+        assert_eq!(interfaces.len(), 3);
+        assert!(interfaces.contains(&"eth0".to_string()));
+        assert!(interfaces.contains(&"eth1".to_string()));
+        assert!(interfaces.contains(&"wlan0".to_string()));
+
+        // Add same IP with different interface (should add interface)
+        host.add_ip_address(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)),
+            "eth0-backup".to_string(),
+        );
+        assert_eq!(host.get_interface_count(), 4);
+        let interfaces = host.get_interface_names();
+        assert_eq!(interfaces.len(), 4);
+        assert!(interfaces.contains(&"eth0-backup".to_string()));
+
+        // Adding same interface directly should not increase count
+        host.add_interface("wlan0".to_string());
+        assert_eq!(host.get_interface_count(), 4);
+    }
+
+    #[test]
+    fn test_primary_interface_and_multiple_interfaces() {
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let mut host = PtpHost::new(ClockIdentity::default());
+
+        // Initially should have no primary interface
+        assert_eq!(host.get_primary_interface(), None);
+        assert!(!host.has_multiple_interfaces());
+
+        // Add first interface via IP address
+        host.add_ip_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)), "eth0".to_string());
+        assert_eq!(host.get_primary_interface(), Some(&"eth0".to_string()));
+        assert!(!host.has_multiple_interfaces());
+
+        // Add second interface via IP address - should now have multiple
+        host.add_ip_address(
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+            "eth1".to_string(),
+        );
+        assert!(host.has_multiple_interfaces());
+        // Primary interface should still be the first one
+        let primary = host.get_primary_interface();
+        assert!(primary.is_some());
+
+        // Add interface directly (gPTP) - should still detect multiple
+        host.add_interface("wlan0".to_string());
+        assert!(host.has_multiple_interfaces());
+        assert_eq!(host.get_interface_count(), 3);
+
+        // Test with only direct interfaces (gPTP scenario)
+        let mut host2 = PtpHost::new(ClockIdentity::default());
+        host2.add_interface("wlan0".to_string());
+        assert_eq!(host2.get_primary_interface(), Some(&"wlan0".to_string()));
+        assert!(!host2.has_multiple_interfaces());
+
+        host2.add_interface("eth0".to_string());
+        assert!(host2.has_multiple_interfaces());
     }
 }
 
