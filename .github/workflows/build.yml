@@ -153,6 +153,22 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -la artifacts/
 
+      - name: Set executable bit on Unix binaries
+        run: |
+          cd artifacts
+          chmod +x ptp-trace-linux-x86_64/ptp-trace
+          chmod +x ptp-trace-linux-aarch64/ptp-trace
+          chmod +x ptp-trace-linux-armv7/ptp-trace
+          chmod +x ptp-trace-macos-x86_64/ptp-trace
+          chmod +x ptp-trace-macos-aarch64/ptp-trace
+          # Verify executable bits are set
+          echo "Verifying executable permissions:"
+          ls -la ptp-trace-linux-x86_64/ptp-trace
+          ls -la ptp-trace-linux-aarch64/ptp-trace
+          ls -la ptp-trace-linux-armv7/ptp-trace
+          ls -la ptp-trace-macos-x86_64/ptp-trace
+          ls -la ptp-trace-macos-aarch64/ptp-trace
+
       - name: Create ZIP archives
         run: |
           cd artifacts
