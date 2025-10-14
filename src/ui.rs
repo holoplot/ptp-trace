@@ -1023,7 +1023,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from("  h/F1       - Show/hide this help"),
-        Line::from("  q/Esc      - Quit application"),
+        Line::from("  q          - Quit application"),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Notes:",

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -234,7 +234,7 @@ impl App {
             // Check for events
             if event::poll(timeout)? {
                 match event::read()? {
-                    Event::Key(key) => {
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
                         if let Err(_e) = self.handle_key_event_with_modifiers(key).await {
                             self.state = AppState::Quitting;
                             break;
@@ -321,9 +321,8 @@ impl App {
                     self.modal_visible_height = 10;
                 } else if self.show_help {
                     self.show_help = false;
-                } else {
-                    self.state = AppState::Quitting;
                 }
+                // ESC no longer quits the application - use 'q' instead
             }
             KeyCode::Char('h') | KeyCode::F(1) => {
                 self.show_help = !self.show_help;
