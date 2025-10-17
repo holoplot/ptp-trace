@@ -43,7 +43,7 @@ pub struct RawPacket {
 pub enum PacketSource {
     Socket {
         receiver: mpsc::UnboundedReceiver<RawPacket>,
-        interfaces: Vec<(String, Ipv4Addr)>,
+        interfaces: Vec<(String, Option<Ipv4Addr>)>,
         _multicast_sockets: Vec<Socket>,
     },
     Pcap {
@@ -77,7 +77,7 @@ impl RawSocketReceiver {
         }
     }
 
-    pub fn get_interfaces(&self) -> &[(String, Ipv4Addr)] {
+    pub fn get_interfaces(&self) -> &[(String, Option<Ipv4Addr>)] {
         match &self.source {
             PacketSource::Socket { interfaces, .. } => interfaces,
             PacketSource::Pcap { .. } => &[],
@@ -106,7 +106,7 @@ fn iface_addrs_by_name(ifname: &str) -> io::Result<Option<Ipv4Addr>> {
     Ok(v4)
 }
 
-fn get_all_interface_addrs() -> io::Result<Vec<(String, Ipv4Addr)>> {
+fn get_all_interface_addrs() -> io::Result<Vec<(String, Option<Ipv4Addr>)>> {
     let mut interfaces = Vec::new();
 
     // Get available interfaces using pnet datalink
@@ -124,7 +124,7 @@ fn get_all_interface_addrs() -> io::Result<Vec<(String, Ipv4Addr)>> {
         for ip in &iface.ips {
             if let IpAddr::V4(ipv4) = ip.ip() {
                 if !ipv4.is_loopback() && is_suitable_interface_name(&interface_name) {
-                    interfaces.push((interface_name.clone(), ipv4));
+                    interfaces.push((interface_name.clone(), Some(ipv4)));
                     break; // Only take first IPv4 address per interface
                 } else {
                     println!("Excluding interface: {} (filtered)", interface_name);
@@ -384,12 +384,6 @@ pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketR
         let mut interfaces = Vec::new();
         for ifname in ifnames {
             let iface_v4 = iface_addrs_by_name(ifname)?;
-            let iface_v4 = iface_v4.ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("iface {} has no IPv4", ifname),
-                )
-            })?;
             interfaces.push((ifname.clone(), iface_v4));
         }
         interfaces
@@ -412,26 +406,44 @@ pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketR
 
     let (sender, receiver) = mpsc::unbounded_channel();
 
-    // Set up multicast group membership for each interface
+    // Set up multicast group membership and start packet capture for each interface
     let mut multicast_sockets = Vec::new();
     for (interface_name, interface_addr) in &target_interfaces {
-        // Join multicast groups and keep sockets alive
-        match join_multicast_group(interface_name, *interface_addr) {
-            Ok(socket) => multicast_sockets.push(socket),
-            Err(e) => {
-                eprintln!(
-                    "Warning: Could not join multicast group on {}: {}",
-                    interface_name, e
-                );
-            }
-        }
-    }
-
-    // Start packet capture on each interface
-    for (i, (interface_name, _)) in target_interfaces.iter().enumerate() {
         let sender_clone = sender.clone();
         let interface_name_clone = interface_name.clone();
-        let multicast_socket = multicast_sockets[i].try_clone().unwrap();
+
+        // Try to join multicast group if interface has an IP address
+        let multicast_socket = if let Some(interface_addr) = interface_addr {
+            match join_multicast_group(interface_name, *interface_addr) {
+                Ok(socket) => {
+                    let socket_clone = socket.try_clone().unwrap();
+                    multicast_sockets.push(socket);
+                    socket_clone
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Could not join multicast group on {}: {}",
+                        interface_name, e
+                    );
+                    // Create a dummy socket for interfaces without multicast capability
+                    Socket::new(
+                        socket2::Domain::IPV4,
+                        socket2::Type::DGRAM,
+                        Some(socket2::Protocol::UDP),
+                    )
+                    .unwrap()
+                }
+            }
+        } else {
+            // Create a dummy socket for interfaces without IP addresses
+            Socket::new(
+                socket2::Domain::IPV4,
+                socket2::Type::DGRAM,
+                Some(socket2::Protocol::UDP),
+            )
+            .unwrap()
+        };
+
         tokio::spawn(async move {
             // Stagger startup to reduce resource contention
             tokio::time::sleep(Duration::from_millis(200)).await;
