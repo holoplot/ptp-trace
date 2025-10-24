@@ -540,9 +540,6 @@ impl App {
                 // This preserves the user's packet selection when they TAB back
             }
             KeyCode::Char('q') => {
-                self.state = AppState::Quitting;
-            }
-            KeyCode::Esc => {
                 if self.show_packet_modal {
                     self.show_packet_modal = false;
                     self.modal_packet = None;
@@ -550,8 +547,15 @@ impl App {
                     self.modal_visible_height = 10;
                 } else if self.show_help {
                     self.show_help = false;
+                } else {
+                    self.state = AppState::Quitting;
                 }
-                // ESC no longer quits the application - use 'q' instead
+            }
+            KeyCode::Esc => {
+                if self.show_help {
+                    self.show_help = false;
+                }
+                // ESC only closes help now - use 'q' for modal/quit
             }
             KeyCode::Char('h') | KeyCode::F(1) => {
                 self.show_help = !self.show_help;

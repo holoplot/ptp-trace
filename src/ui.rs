@@ -1004,6 +1004,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from("  PgUp/PgDn  - Page up/down (10 items or 1 page scroll)"),
         Line::from("  Home/End   - Jump to top/bottom"),
         Line::from("  Enter      - Show packet details (when packet history active)"),
+        Line::from("  q          - Close packet details modal (when modal open)"),
         Line::from("  ↑↓/k/j     - Scroll modal content (when modal open)"),
         Line::from("  PgUp/PgDn/Space - Page scroll modal content (when modal open)"),
         Line::from("  Home/End   - Jump to top/bottom of modal (when modal open)"),
@@ -1023,6 +1024,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
             Line::from("  Double-click - Open packet details modal (packet history rows)"),
             Line::from("  Click outside modal - Close packet details modal"),
             Line::from("  Scroll wheel - Navigate selections/scroll content"),
+            Line::from("  Note: Use 'q' key to close modals/help or click outside modals"),
             Line::from("  Note: Use --no-mouse flag to disable mouse support"),
             Line::from(""),
         ]);
@@ -1055,7 +1057,8 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from("  h/F1       - Show/hide this help"),
-        Line::from("  q          - Quit application"),
+        Line::from("  Esc/q      - Close help"),
+        Line::from("  q          - Close modal/help or quit application"),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Notes:",
@@ -1462,7 +1465,7 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
 
         // Modal title
         let title = format!(
-            "Packet Details - Seq {} (ESC or click outside to close)",
+            "Packet Details - Seq {} ('q' or click outside to close)",
             packet.ptp.header().sequence_id
         );
 

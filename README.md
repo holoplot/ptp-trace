@@ -147,11 +147,13 @@ sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix
 - `PgUp` / `PgDn` - 📄 Page navigation (10 items) or scroll by page
 - `Home` / `End` - 🏠 Jump to top/bottom
 - `Enter` - 📋 Show packet details modal (when packet history is active)
+- `q` - 🚪 Close packet details modal (when modal is open) or quit application
+- `Esc` - 🚪 Close help screen
 
 ### 🖱️ **Mouse Support** (enabled by default, disable with `--no-mouse`)
 - `Click` - 🎯 Switch to view and select row (host table/packet history)
 - `Double-click` - 📋 Open packet details modal (packet history rows)
-- `Click outside modal` - 🚪 Close packet details modal
+- `Click outside modal` - 🚪 Close packet details modal (or use 'q' key)
 - `Scroll wheel` - 🔄 Navigate selections/scroll content (3 lines per scroll)
 
 ### 📊 **Table Operations**
@@ -173,8 +175,8 @@ sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix
 
 ### ℹ️ **Help & Exit**
 - `h` / `F1` - ❓ Show/hide help
-- `Esc` - 🚪 Close help/modal or quit
-- `q` - 🚫 Quit application
+- `Esc` / `q` - 🚪 Close help screen
+- `q` - 🚫 Close modal/help or quit application
 
 ### 📋 **Interface Behavior**
 - **Three-way navigation**: Use `Tab` to cycle between Host Table, Host Details, and Packet History
