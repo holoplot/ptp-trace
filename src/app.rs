@@ -394,109 +394,104 @@ impl App {
                 self.last_click_position = (x, y);
 
                 // If modal is open, check if clicked outside to close it
-                if self.show_packet_modal {
-                    if let Some(terminal_area) = self.terminal_area {
-                        // Calculate modal area (exactly matching render_packet_modal)
-                        let preferred_width = (terminal_area.width as f32 * 0.4) as u16;
-                        let modal_width = preferred_width.max(80);
-                        let modal_height = (terminal_area.height as f32 * 0.6) as u16;
-                        let modal_x = (terminal_area.width - modal_width) / 2;
-                        let modal_y = (terminal_area.height - modal_height) / 2;
+                if self.show_packet_modal
+                    && let Some(terminal_area) = self.terminal_area
+                {
+                    // Calculate modal area (exactly matching render_packet_modal)
+                    let preferred_width = (terminal_area.width as f32 * 0.4) as u16;
+                    let modal_width = preferred_width.max(80);
+                    let modal_height = (terminal_area.height as f32 * 0.6) as u16;
+                    let modal_x = (terminal_area.width - modal_width) / 2;
+                    let modal_y = (terminal_area.height - modal_height) / 2;
 
-                        if x < modal_x
-                            || x >= modal_x + modal_width
-                            || y < modal_y
-                            || y >= modal_y + modal_height
-                        {
-                            // Clicked outside modal, close it
-                            self.show_packet_modal = false;
-                            self.modal_packet = None;
-                            self.modal_scroll_offset = 0;
-                            self.modal_visible_height = 10;
-                            return Ok(());
-                        } else {
-                            // Clicked inside modal, do nothing special
-                            return Ok(());
-                        }
+                    if x < modal_x
+                        || x >= modal_x + modal_width
+                        || y < modal_y
+                        || y >= modal_y + modal_height
+                    {
+                        // Clicked outside modal, close it
+                        self.show_packet_modal = false;
+                        self.modal_packet = None;
+                        self.modal_scroll_offset = 0;
+                        self.modal_visible_height = 10;
+                        return Ok(());
+                    } else {
+                        // Clicked inside modal, do nothing special
+                        return Ok(());
                     }
                 }
 
                 // Check which area was clicked
-                if let Some(area) = self.host_table_area {
-                    if x >= area.x
-                        && x < area.x + area.width
-                        && y >= area.y
-                        && y < area.y + area.height
-                    {
-                        // Clicked in host table area
-                        self.active_view = ActiveView::HostTable;
+                if let Some(area) = self.host_table_area
+                    && x >= area.x
+                    && x < area.x + area.width
+                    && y >= area.y
+                    && y < area.y + area.height
+                {
+                    // Clicked in host table area
+                    self.active_view = ActiveView::HostTable;
 
-                        // Calculate which row was clicked (accounting for borders and header)
-                        if y >= area.y + 2 && y < area.y + area.height - 1 {
-                            let clicked_row = (y - area.y - 2) as usize;
-                            let new_index = clicked_row + self.host_scroll_offset;
+                    // Calculate which row was clicked (accounting for borders and header)
+                    if y >= area.y + 2 && y < area.y + area.height - 1 {
+                        let clicked_row = (y - area.y - 2) as usize;
+                        let new_index = clicked_row + self.host_scroll_offset;
 
-                            let max_index = if self.tree_view_mode {
-                                self.get_tree_item_count()
-                            } else {
-                                self.get_host_count()
-                            };
+                        let max_index = if self.tree_view_mode {
+                            self.get_tree_item_count()
+                        } else {
+                            self.get_host_count()
+                        };
 
-                            if new_index < max_index {
-                                self.selected_index = new_index;
-                                self.host_selection_changed = true;
-                                self.update_selected_host(new_index);
-                            }
+                        if new_index < max_index {
+                            self.selected_index = new_index;
+                            self.host_selection_changed = true;
+                            self.update_selected_host(new_index);
                         }
-                        return Ok(());
                     }
+                    return Ok(());
                 }
 
-                if let Some(area) = self.host_details_area {
-                    if x >= area.x
-                        && x < area.x + area.width
-                        && y >= area.y
-                        && y < area.y + area.height
-                    {
-                        // Clicked in host details area
-                        self.active_view = ActiveView::HostDetails;
-                        return Ok(());
-                    }
+                if let Some(area) = self.host_details_area
+                    && x >= area.x
+                    && x < area.x + area.width
+                    && y >= area.y
+                    && y < area.y + area.height
+                {
+                    // Clicked in host details area
+                    self.active_view = ActiveView::HostDetails;
+                    return Ok(());
                 }
 
-                if let Some(area) = self.packet_history_area {
-                    if x >= area.x
-                        && x < area.x + area.width
-                        && y >= area.y
-                        && y < area.y + area.height
-                    {
-                        // Clicked in packet history area
-                        self.active_view = ActiveView::PacketHistory;
+                if let Some(area) = self.packet_history_area
+                    && x >= area.x
+                    && x < area.x + area.width
+                    && y >= area.y
+                    && y < area.y + area.height
+                {
+                    // Clicked in packet history area
+                    self.active_view = ActiveView::PacketHistory;
 
-                        // Calculate which packet row was clicked (accounting for borders and header)
-                        if y >= area.y + 2 && y < area.y + area.height - 1 {
-                            let clicked_row = (y - area.y - 2) as usize;
-                            let packets = self.get_packet_history();
-                            let visible_start = self.packet_scroll_offset;
-                            let new_packet_index = visible_start + clicked_row;
+                    // Calculate which packet row was clicked (accounting for borders and header)
+                    if y >= area.y + 2 && y < area.y + area.height - 1 {
+                        let clicked_row = (y - area.y - 2) as usize;
+                        let packets = self.get_packet_history();
+                        let visible_start = self.packet_scroll_offset;
+                        let new_packet_index = visible_start + clicked_row;
 
-                            if new_packet_index < packets.len() {
-                                self.selected_packet_index = new_packet_index;
-                                self.packet_selection_changed = true;
-                                self.auto_scroll_packets = false;
+                        if new_packet_index < packets.len() {
+                            self.selected_packet_index = new_packet_index;
+                            self.packet_selection_changed = true;
+                            self.auto_scroll_packets = false;
 
-                                // Handle double-click to open packet modal
-                                if is_double_click {
-                                    if let Some(packet) = self.get_selected_packet() {
-                                        self.modal_packet = Some(packet);
-                                        self.show_packet_modal = true;
-                                        self.modal_scroll_offset = 0;
-                                    }
-                                }
+                            // Handle double-click to open packet modal
+                            if is_double_click && let Some(packet) = self.get_selected_packet() {
+                                self.modal_packet = Some(packet);
+                                self.show_packet_modal = true;
+                                self.modal_scroll_offset = 0;
                             }
                         }
-                        return Ok(());
                     }
+                    return Ok(());
                 }
             }
             _ => {
