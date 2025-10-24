@@ -1109,6 +1109,17 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("  *", Style::default().fg(theme.text_primary)),
             Span::raw("  - Local machine (your own host)"),
         ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Terminology:",
+            Style::default()
+                .fg(theme.table_header)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from("  This project uses inclusive terminology:"),
+        Line::from("  • Time Transmitter = Master Clock"),
+        Line::from("  • Time Receiver = Slave Clock"),
+        Line::from("  • Primary Time Transmitter (PTT) = Grandmaster Clock"),
     ]);
 
     let help_paragraph = Paragraph::new(help_text)

@@ -187,6 +187,22 @@ sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix
 - **Mouse integration**: Mouse and keyboard controls work seamlessly together
 - **Accessibility**: Use `--no-mouse` flag to disable mouse support if needed
 
+## ✊ Terminology & Inclusive Language
+
+In accordance with [IEEE 1588g-2022](https://standards.ieee.org/ieee/1588g/10478/), this project uses **inclusive terminology** to describe the roles of network components.
+
+### 🔄 **Term Mapping**
+
+| **Inclusive term**                 | **Industry Standard** | **Description**                              |
+|------------------------------------|-----------------------|----------------------------------------------|
+| **Time Transmitter**               | Master Clock          | Device that provides timing reference        |
+| **Time Receiver**                  | Slave Clock           | Device that synchronizes to timing reference |
+| **Primary Time Transmitter (PTT)** | Grandmaster Clock     | Best master clock selected by BMCA algorithm |
+
+The underlying PTP protocol and packet structures remain unchanged - only the user-facing terminology has been modernized for clarity and inclusivity.
+
+A [blog post from Meinberg](https://blog.meinbergglobal.com/2023/02/13/a-step-toward-a-more-inclusive-terminology-for-ptp/) has more information about the topic.
+
 ## 🎨 Themes
 
 Choose from multiple built-in themes. See the output of `ptp-trace --help` to get a list of available themes.
