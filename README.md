@@ -1,6 +1,6 @@
 # 🕰️ PTP Trace
 
-A powerful cross-platform terminal-based application for monitoring and analyzing PTPv2 (Precision Time Protocol) networks in real-time.
+A powerful cross-platform terminal-based application for monitoring and analyzing PTPv2 (Precision Time Protocol) networks in real-time with full keyboard and mouse support.
 
 ![License](https://img.shields.io/badge/license-GPLv2-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)
@@ -12,6 +12,7 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - 📊 Real-time dashboard with multiple panels
 - 🎨 Multiple themes: Default, Monokai, Matrix
 - ⌨️ Intuitive keyboard navigation
+- 🖱️ Mouse support - Click to switch views, select rows, and navigate content
 - 📱 Responsive layout that adapts to terminal size
 - 🔄 Live updates without screen flicker
 - ⏸️ Pause mode to temporarily stop network parsing for UI inspection
@@ -42,11 +43,14 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - 📊 Quality indicators and confidence levels
 - 🔍 OUI database integration to show vendor information
 - ⭐ Local machine identification: Your own machine is marked with asterisks (*) in the host list and details
+- 🖱️ Mouse-enabled selection - Click on any host row to select it instantly
 
 ### 📦 **Packet Analysis**
 - 📋 Real-time packet history with version identification
 - 🎨 Color-coded message types (ANNOUNCE, SYNC, DELAY_REQ, PDELAY_REQ, etc.)
-- 🌐 **Interface-aware capture** - Tracks which interface each packet was received on
+- 🌐 Interface-aware capture - Tracks which interface each packet was received on
+- 🖱️ Interactive packet selection - Click to select packets, double-click for detailed view
+- 📜 Scroll wheel support - Navigate through packet history with mouse wheel
 
 ## 📄 PCAP File Analysis
 
@@ -119,6 +123,9 @@ sudo ./target/release/ptp-trace --update-interval 500
 # 🎨 Use Matrix theme
 sudo ./target/release/ptp-trace --theme matrix
 
+# 🖱️ Disable mouse support (enabled by default)
+sudo ./target/release/ptp-trace --no-mouse
+
 # 📄 Analyze pcap file with custom theme and faster updates
 ./target/release/ptp-trace --pcap-file capture.pcap --theme matrix --update-interval 250
 
@@ -126,7 +133,7 @@ sudo ./target/release/ptp-trace --theme matrix
 sudo ./target/release/ptp-trace --debug
 
 # 🔧 Combine options for live monitoring
-sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix --update-interval 500
+sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix --update-interval 500 --no-mouse
 
 # Note: --interface and --pcap-file options are mutually exclusive
 ```
@@ -140,6 +147,12 @@ sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix
 - `PgUp` / `PgDn` - 📄 Page navigation (10 items) or scroll by page
 - `Home` / `End` - 🏠 Jump to top/bottom
 - `Enter` - 📋 Show packet details modal (when packet history is active)
+
+### 🖱️ **Mouse Support** (enabled by default, disable with `--no-mouse`)
+- `Click` - 🎯 Switch to view and select row (host table/packet history)
+- `Double-click` - 📋 Open packet details modal (packet history rows)
+- `Click outside modal` - 🚪 Close packet details modal
+- `Scroll wheel` - 🔄 Navigate selections/scroll content (3 lines per scroll)
 
 ### 📊 **Table Operations**
 - `s` - 🔄 Cycle sort columns
@@ -169,6 +182,8 @@ sudo ./target/release/ptp-trace --interface eth0 --interface eth1 --theme matrix
 - **Preserved selections**: Packet selection is maintained when switching views until you select a different host
 - **Auto-scroll control**: Packet auto-scroll is disabled when manually navigating, re-enable with `w`
 - **Smart resets**: Scroll positions reset to top when selecting a different host
+- **Mouse integration**: Mouse and keyboard controls work seamlessly together
+- **Accessibility**: Use `--no-mouse` flag to disable mouse support if needed
 
 ## 🎨 Themes
 

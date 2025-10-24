@@ -205,6 +205,8 @@ fn create_aligned_field_with_vendor(
 }
 
 pub fn ui(f: &mut Frame, app: &mut App) {
+    // Store terminal area for mouse support
+    app.terminal_area = Some(f.area());
     let chunks = if app.is_packet_history_expanded() {
         // Expanded view: split roughly 50/50 between hosts and packets
         Layout::default()
@@ -226,6 +228,9 @@ pub fn ui(f: &mut Frame, app: &mut App) {
             ])
             .split(f.area())
     };
+
+    // Store packet history area for mouse support
+    app.packet_history_area = Some(chunks[2]);
 
     // Render header
     render_header(f, chunks[0], app);
@@ -321,6 +326,9 @@ fn render_main_content(f: &mut Frame, area: Rect, app: &mut App) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(area);
+
+    // Store areas for mouse support
+    app.host_table_area = Some(chunks[0]);
 
     // Left panel: PTP hosts list
     render_hosts_table(f, chunks[0], app);
@@ -543,6 +551,9 @@ fn render_stats_panel(f: &mut Frame, area: Rect, app: &mut App) {
             Constraint::Min(5),    // Details panel (host or packet)
         ])
         .split(area);
+
+    // Store area for mouse support
+    app.host_details_area = Some(chunks[1]);
 
     // Summary statistics
     render_summary_stats(f, chunks[0], app);
@@ -973,7 +984,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         PtpHostState::TimeReceiver(crate::ptp::PtpHostStateTimeReceiver::default());
     let listening_state = PtpHostState::Listening;
 
-    let help_text = vec![
+    let mut help_text = vec![
         Line::from(vec![Span::styled(
             "PTP Network Tracer Help",
             Style::default()
@@ -997,6 +1008,27 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from("  PgUp/PgDn/Space - Page scroll modal content (when modal open)"),
         Line::from("  Home/End   - Jump to top/bottom of modal (when modal open)"),
         Line::from(""),
+    ];
+
+    // Add mouse support section only if mouse is enabled
+    if app.mouse_enabled {
+        help_text.extend_from_slice(&[
+            Line::from(vec![Span::styled(
+                "Mouse Support:",
+                Style::default()
+                    .fg(theme.table_header)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from("  Click      - Switch to view and select row (host table/packet history)"),
+            Line::from("  Double-click - Open packet details modal (packet history rows)"),
+            Line::from("  Click outside modal - Close packet details modal"),
+            Line::from("  Scroll wheel - Navigate selections/scroll content"),
+            Line::from("  Note: Use --no-mouse flag to disable mouse support"),
+            Line::from(""),
+        ]);
+    }
+
+    help_text.extend_from_slice(&[
         Line::from(vec![Span::styled(
             "Actions:",
             Style::default()
@@ -1074,7 +1106,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("  *", Style::default().fg(theme.text_primary)),
             Span::raw("  - Local machine (your own host)"),
         ]),
-    ];
+    ]);
 
     let help_paragraph = Paragraph::new(help_text)
         .style(Style::default().fg(theme.text_primary).bg(theme.background))
@@ -1430,7 +1462,7 @@ fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
 
         // Modal title
         let title = format!(
-            "Packet Details - Seq {} (ESC to close)",
+            "Packet Details - Seq {} (ESC or click outside to close)",
             packet.ptp.header().sequence_id
         );
 

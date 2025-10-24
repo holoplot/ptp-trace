@@ -69,6 +69,10 @@ pub struct Cli {
 
     #[arg(short, long, default_value = "default", value_parser = parse_theme, help = theme_help_text())]
     theme: String,
+
+    /// Disable mouse support (mouse support is enabled by default)
+    #[arg(long)]
+    no_mouse: bool,
 }
 
 #[derive(Parser)]
@@ -106,7 +110,13 @@ async fn main() -> Result<()> {
 
     // Initialize the application
     let update_interval = Duration::from_millis(cli.update_interval);
-    let mut app = App::new(update_interval, cli.debug, theme_name, raw_socket_receiver)?;
+    let mut app = App::new(
+        update_interval,
+        cli.debug,
+        theme_name,
+        raw_socket_receiver,
+        !cli.no_mouse,
+    )?;
 
     // Run the TUI application
     app.run().await?;

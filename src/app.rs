@@ -1,6 +1,9 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+        MouseEvent, MouseEventKind,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -141,6 +144,19 @@ pub struct App {
     pub host_details_visible_height: usize,
     pub host_selection_changed: bool,
     pub packet_selection_changed: bool,
+
+    // Mouse support - track UI areas
+    pub host_table_area: Option<Rect>,
+    pub host_details_area: Option<Rect>,
+    pub packet_history_area: Option<Rect>,
+    pub terminal_area: Option<Rect>,
+
+    // Mouse support
+    pub mouse_enabled: bool,
+
+    // Double-click support
+    pub last_click_time: std::time::Instant,
+    pub last_click_position: (u16, u16),
 }
 
 impl App {
@@ -149,6 +165,7 @@ impl App {
         debug: bool,
         theme_name: crate::themes::ThemeName,
         raw_socket_receiver: crate::source::RawSocketReceiver,
+        mouse_enabled: bool,
     ) -> Result<Self> {
         let ptp_tracker = PtpTracker::new(raw_socket_receiver)?;
         let theme = crate::themes::Theme::new(theme_name);
@@ -185,6 +202,13 @@ impl App {
             host_details_visible_height: 10,
             host_selection_changed: true,
             packet_selection_changed: true,
+            host_table_area: None,
+            host_details_area: None,
+            packet_history_area: None,
+            terminal_area: None,
+            mouse_enabled,
+            last_click_time: Instant::now(),
+            last_click_position: (0, 0),
         };
 
         // Set the max packet history on the tracker
@@ -195,19 +219,30 @@ impl App {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        // Setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        if self.mouse_enabled {
+            execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        } else {
+            execute!(stdout, EnterAlternateScreen)?;
+        }
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        // Main application loop
+        // Run the app
         let result = self.run_app(&mut terminal).await;
 
         // Restore terminal
         disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        if self.mouse_enabled {
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+        } else {
+            execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        }
         terminal.show_cursor()?;
 
         result
@@ -236,6 +271,12 @@ impl App {
                 match event::read()? {
                     Event::Key(key) if key.kind == KeyEventKind::Press => {
                         if let Err(_e) = self.handle_key_event_with_modifiers(key).await {
+                            self.state = AppState::Quitting;
+                            break;
+                        }
+                    }
+                    Event::Mouse(mouse) if self.mouse_enabled => {
+                        if let Err(_e) = self.handle_mouse_event(mouse).await {
                             self.state = AppState::Quitting;
                             break;
                         }
@@ -275,6 +316,194 @@ impl App {
         key: crossterm::event::KeyEvent,
     ) -> Result<()> {
         self.handle_key_event(key.code, key.modifiers).await
+    }
+
+    async fn handle_mouse_event(&mut self, mouse: MouseEvent) -> Result<()> {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                if self.show_packet_modal {
+                    // Scroll modal up by 3 lines per wheel event
+                    for _ in 0..3 {
+                        self.scroll_modal_up();
+                    }
+                } else {
+                    match self.active_view {
+                        ActiveView::HostTable => {
+                            // Move selection up by 3 rows per wheel event
+                            for _ in 0..3 {
+                                self.move_selection_up();
+                            }
+                        }
+                        ActiveView::HostDetails => {
+                            // Scroll host details up by 3 lines per wheel event
+                            for _ in 0..3 {
+                                self.scroll_host_details_up();
+                            }
+                        }
+                        ActiveView::PacketHistory => {
+                            // Move packet selection up by 3 rows per wheel event
+                            for _ in 0..3 {
+                                self.move_packet_selection_up();
+                            }
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            MouseEventKind::ScrollDown => {
+                if self.show_packet_modal {
+                    // Scroll modal down by 3 lines per wheel event
+                    for _ in 0..3 {
+                        self.scroll_modal_down();
+                    }
+                } else {
+                    match self.active_view {
+                        ActiveView::HostTable => {
+                            // Move selection down by 3 rows per wheel event
+                            for _ in 0..3 {
+                                self.move_selection_down();
+                            }
+                        }
+                        ActiveView::HostDetails => {
+                            // Scroll host details down by 3 lines per wheel event
+                            for _ in 0..3 {
+                                self.scroll_host_details_down();
+                            }
+                        }
+                        ActiveView::PacketHistory => {
+                            // Move packet selection down by 3 rows per wheel event
+                            for _ in 0..3 {
+                                self.move_packet_selection_down();
+                            }
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                let x = mouse.column;
+                let y = mouse.row;
+
+                // Check for double-click
+                let now = Instant::now();
+                let is_double_click = now.duration_since(self.last_click_time)
+                    < Duration::from_millis(400)
+                    && self.last_click_position == (x, y);
+
+                self.last_click_time = now;
+                self.last_click_position = (x, y);
+
+                // If modal is open, check if clicked outside to close it
+                if self.show_packet_modal {
+                    if let Some(terminal_area) = self.terminal_area {
+                        // Calculate modal area (exactly matching render_packet_modal)
+                        let preferred_width = (terminal_area.width as f32 * 0.4) as u16;
+                        let modal_width = preferred_width.max(80);
+                        let modal_height = (terminal_area.height as f32 * 0.6) as u16;
+                        let modal_x = (terminal_area.width - modal_width) / 2;
+                        let modal_y = (terminal_area.height - modal_height) / 2;
+
+                        if x < modal_x
+                            || x >= modal_x + modal_width
+                            || y < modal_y
+                            || y >= modal_y + modal_height
+                        {
+                            // Clicked outside modal, close it
+                            self.show_packet_modal = false;
+                            self.modal_packet = None;
+                            self.modal_scroll_offset = 0;
+                            self.modal_visible_height = 10;
+                            return Ok(());
+                        } else {
+                            // Clicked inside modal, do nothing special
+                            return Ok(());
+                        }
+                    }
+                }
+
+                // Check which area was clicked
+                if let Some(area) = self.host_table_area {
+                    if x >= area.x
+                        && x < area.x + area.width
+                        && y >= area.y
+                        && y < area.y + area.height
+                    {
+                        // Clicked in host table area
+                        self.active_view = ActiveView::HostTable;
+
+                        // Calculate which row was clicked (accounting for borders and header)
+                        if y >= area.y + 2 && y < area.y + area.height - 1 {
+                            let clicked_row = (y - area.y - 2) as usize;
+                            let new_index = clicked_row + self.host_scroll_offset;
+
+                            let max_index = if self.tree_view_mode {
+                                self.get_tree_item_count()
+                            } else {
+                                self.get_host_count()
+                            };
+
+                            if new_index < max_index {
+                                self.selected_index = new_index;
+                                self.host_selection_changed = true;
+                                self.update_selected_host(new_index);
+                            }
+                        }
+                        return Ok(());
+                    }
+                }
+
+                if let Some(area) = self.host_details_area {
+                    if x >= area.x
+                        && x < area.x + area.width
+                        && y >= area.y
+                        && y < area.y + area.height
+                    {
+                        // Clicked in host details area
+                        self.active_view = ActiveView::HostDetails;
+                        return Ok(());
+                    }
+                }
+
+                if let Some(area) = self.packet_history_area {
+                    if x >= area.x
+                        && x < area.x + area.width
+                        && y >= area.y
+                        && y < area.y + area.height
+                    {
+                        // Clicked in packet history area
+                        self.active_view = ActiveView::PacketHistory;
+
+                        // Calculate which packet row was clicked (accounting for borders and header)
+                        if y >= area.y + 2 && y < area.y + area.height - 1 {
+                            let clicked_row = (y - area.y - 2) as usize;
+                            let packets = self.get_packet_history();
+                            let visible_start = self.packet_scroll_offset;
+                            let new_packet_index = visible_start + clicked_row;
+
+                            if new_packet_index < packets.len() {
+                                self.selected_packet_index = new_packet_index;
+                                self.packet_selection_changed = true;
+                                self.auto_scroll_packets = false;
+
+                                // Handle double-click to open packet modal
+                                if is_double_click {
+                                    if let Some(packet) = self.get_selected_packet() {
+                                        self.modal_packet = Some(packet);
+                                        self.show_packet_modal = true;
+                                        self.modal_scroll_offset = 0;
+                                    }
+                                }
+                            }
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+            _ => {
+                // Ignore other mouse events
+            }
+        }
+        Ok(())
     }
 
     async fn handle_key_event(
