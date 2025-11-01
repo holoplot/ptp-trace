@@ -25,7 +25,6 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - 🌐 **Multicast group membership** - Ensures network interfaces receive multicast PTP traffic
 - 🔍 **Full packet analysis** - Records both raw packet data and parsed PTP content
 - 🎯 **Smart interface selection** - Automatically filters virtual interfaces while supporting manual override
-- ⚡ **Hardware-accelerated filtering** - Uses BPF filters for efficient packet capture
 - 🏷️ Host classification by PTP state
 - 🏆 **BMCA (Best Master Clock Algorithm)** - Automatic primary time transmitter detection
 - 📊 Primary Time Transmitter marked with "PTT" indicator
@@ -223,6 +222,7 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 - 🔍 **Advanced filtering** - Search and filter capabilities for both live and pcap modes
 - 📊 **Enhanced analytics** - Statistical analysis of timing data
 - 🔧 **Configuration management** - Save/load application settings
+- ⚡ **Hardware-accelerated filtering** - Use BPF filters for efficient packet capture
 
 ## 🛠️ Development
 
