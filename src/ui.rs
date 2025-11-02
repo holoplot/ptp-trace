@@ -758,6 +758,12 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                             theme,
                         ),
                         create_aligned_field(
+                            "Steps Removed: ".to_string(),
+                            format!("{}", s.steps_removed.unwrap_or(999)),
+                            LABEL_WIDTH,
+                            theme,
+                         ),
+                        create_aligned_field(
                             "Log Variance: ".to_string(),
                             s.offset_scaled_log_variance
                                 .map_or("N/A".to_string(), |v| v.to_string()),
