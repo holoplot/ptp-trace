@@ -586,7 +586,7 @@ impl TryFrom<&[u8]> for PtpHeader {
                 version: PtpVersion::try_from(data[1] & 0x0f)?,
                 message_length: u16::from_be_bytes([data[2], data[3]]),
                 domain_number: data[4],
-                flags: PtpHeaderFlags::try_from(&data[5..7])?,
+                flags: PtpHeaderFlags::try_from(&data[6..8])?,
                 correction_field: PtpCorrectionField::new(i64::from_be_bytes([
                     data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
                 ])),
