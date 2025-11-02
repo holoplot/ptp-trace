@@ -377,7 +377,7 @@ pub struct PtpHost {
     pub clock_identity: ClockIdentity,
     pub ip_addresses: HashMap<IpAddr, Vec<String>>,
     pub interfaces: HashSet<String>, // For gPTP hosts without IP addresses
-    pub vlan_id: Option<u16>,        // QUESTION: Does this need to be by IP address
+    pub vlan_id: Option<u16>,
     pub domain_number: Option<u8>,
     pub last_version: Option<PtpVersion>,
     pub last_seen: SystemTime,
