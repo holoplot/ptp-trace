@@ -1462,9 +1462,9 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
     if let Some(packet) = app.get_modal_packet().cloned() {
-        // Calculate modal size (40% width with minimum 80 chars, 60% height)
+        // Calculate modal size (40% width with minimum 82 chars, 60% height)
         let preferred_width = (area.width as f32 * 0.4) as u16;
-        let modal_width = preferred_width.max(80);
+        let modal_width = preferred_width.max(82);
         let modal_height = (area.height as f32 * 0.6) as u16;
         let x = (area.width - modal_width) / 2;
         let y = (area.height - modal_height) / 2;
@@ -1783,7 +1783,7 @@ fn render_packet_details(
 
         all_lines.push(Line::from(vec![
             Span::styled(
-                format!("{:08x}:  ", offset_addr),
+                format!("{:08x}: ", offset_addr),
                 Style::default().fg(theme.text_secondary),
             ),
             Span::styled(hex_part, Style::default().fg(theme.text_primary)),
