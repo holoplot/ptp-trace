@@ -208,6 +208,10 @@ pub struct ClockIdentity {
 }
 
 impl ClockIdentity {
+
+    // (JH) NOTE: Not sure of the validity of the last 3 octets across all clocks. Only the first 3
+    // are specified by 1588-2019 7.5.2.2
+
     /// Extract vendor name from clock identity string using OUI lookup
     pub fn extract_vendor_name(&self) -> Option<&'static str> {
         let mac_bytes: [u8; 6] = [
@@ -492,6 +496,7 @@ pub struct PtpHeaderFlags {
     ptp_timescale: bool,
     time_traceable: bool,
     frequency_traceable: bool,
+    sync_uncertain: bool,
 }
 
 impl PtpHeaderFlags {
@@ -513,6 +518,7 @@ impl PtpHeaderFlags {
             ("PTP Timescale", self.ptp_timescale),
             ("Time Traceable", self.time_traceable),
             ("Frequency Traceable", self.frequency_traceable),
+            ("Syncronization Uncertain", self.sync_uncertain),
         ]
     }
 }
@@ -520,21 +526,25 @@ impl PtpHeaderFlags {
 impl TryFrom<&[u8]> for PtpHeaderFlags {
     type Error = anyhow::Error;
 
+    // IEEE 1588-2019 13.3.2.8
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         Ok(Self {
             v: v.try_into()?,
             alternate_tt_flag: v[0] & (1 << 0) != 0,
             two_step_flag: v[0] & (1 << 1) != 0,
             unicast_flag: v[0] & (1 << 2) != 0,
+            // v[0] 3 undefined / reserved
+            // v[0] 4 undefined / reserved
             profile_specific_1: v[0] & (1 << 5) != 0,
             profile_specific_2: v[0] & (1 << 6) != 0,
-            ptp_security_flag: v[0] & (1 << 7) != 0,
+            ptp_security_flag: v[0] & (1 << 7) != 0, // FIXME: Changed 2008 (Security) vs 2019 (Reserved)
             leap61: v[1] & (1 << 0) != 0,
             leap59: v[1] & (1 << 1) != 0,
             current_utc_offset_valid: v[1] & (1 << 2) != 0,
             ptp_timescale: v[1] & (1 << 3) != 0,
             time_traceable: v[1] & (1 << 4) != 0,
             frequency_traceable: v[1] & (1 << 5) != 0,
+            sync_uncertain: v[1] & (1 << 6) != 0,
         })
     }
 }
