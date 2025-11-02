@@ -1,3 +1,36 @@
+# About This Fork of PTP Trace
+
+This is a development fork of holoplot/ptp-trace to work on some advanced features needed in my environments that may or may not be accepted back upstream.  
+
+## Features to Implement
+
+- Creating of pseudo-timeTransmitter devices for missing referenced source clocks.
+- Scopes, to address segementation of network clocks
+- Devices, such as boundary or transparent clocks, that can have 0..n timeReceivers and 0..n timeTransmitters
+- BPF as source devices for lower level filtering and more accurate packet timestamps.
+- PTPv1
+- Identification of boundary clocks with proper traceability to PTT/GM clock.
+- PTPv2 management messages & stats
+- Device identification beyond OUI, using mDNS and known device identification methods
+- Descriptive information with backing store for Devices, VLAN's, Scopes.  Seperate per environment
+- Anomaly detection and logging
+- UI views, expand to Scopes and Devices
+- Logging of network events
+- Topology visualizations (scope, device, clock)
+- REST API for underlying data / events / settings to support a graphical UI
+- PCAP logging of all messages with log rotation
+- Embedded CLI to manage settings, actions, etc.
+
+## Items to review / address
+
+- Internal use of BCMA to calculate PTT/Grandmaster has no awareness of clock scope/heirarchy, only Domain, and ignores steps removed.
+- I implemented VLAN at the host level, need to determine if it needs to move to IP or Interface level after Scope is implemented.
+- Need o review message ingest rate, which is currently limited to 100 per interval (default: 1s), which is well below the generation rate for a large network.  Compounded by a pause causing messages to back up.
+- VLAN support for untagged VLAN's
+- Buffer limits on raw buffer ingest
+- Gracefully handle network interfaces disapearing / reappearing
+- Mouse movement causing full refresh / not scoped in modals
+
 # 🕰️ PTP Trace
 
 A powerful cross-platform terminal-based application for monitoring and analyzing PTPv2 (Precision Time Protocol) networks in real-time with full keyboard and mouse support.
@@ -6,6 +39,8 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 ![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)
 
+ 
+ 
 ## ✨ Features
 
 ### 🖥️ **Interactive Terminal UI**
