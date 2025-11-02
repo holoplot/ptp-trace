@@ -663,6 +663,14 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                         theme,
                     ));
                 }
+                details_text.push(create_aligned_field(
+                    "Vlan Id:".to_string(),
+                    host
+                        .vlan_id
+                        .map_or("-".to_string(), |id| id.to_string()),
+                    LABEL_WIDTH,
+                    theme,
+                ));
             } else if !host.get_interfaces().is_empty() {
                 // Show interfaces for gPTP hosts without IP addresses
                 let interfaces_display = host

@@ -377,6 +377,7 @@ pub struct PtpHost {
     pub clock_identity: ClockIdentity,
     pub ip_addresses: HashMap<IpAddr, Vec<String>>,
     pub interfaces: HashSet<String>, // For gPTP hosts without IP addresses
+    pub vlan_id: Option<u16>,        // QUESTION: Does this need to be by IP address
     pub domain_number: Option<u8>,
     pub last_version: Option<PtpVersion>,
     pub last_seen: SystemTime,
@@ -405,6 +406,7 @@ impl PtpHost {
             clock_identity,
             ip_addresses: HashMap::new(),
             interfaces: HashSet::new(),
+            vlan_id: None,
             domain_number: None,
             last_seen: SystemTime::now(),
 
@@ -452,8 +454,9 @@ impl PtpHost {
         reference.duration_since(self.last_seen).unwrap_or_default()
     }
 
-    pub fn add_ip_address(&mut self, ip: IpAddr, interface: String) {
+    pub fn add_ip_address(&mut self, ip: IpAddr, vlan_id: Option<u16>, interface: String) {
         self.ip_addresses.entry(ip).or_default();
+        self.vlan_id = vlan_id;
 
         let v = self.ip_addresses.get_mut(&ip).unwrap();
 
@@ -774,7 +777,7 @@ impl PtpTracker {
         // Add IP address or interface depending on packet type
         if let Some(source_addr) = raw_packet.source_addr {
             // PTP over UDP - add IP address
-            sending_host.add_ip_address(source_addr.ip(), packet.raw.interface_name.clone());
+            sending_host.add_ip_address(source_addr.ip(), packet.raw.vlan_id, packet.raw.interface_name.clone());
         } else {
             // gPTP - add interface only
             sending_host.add_interface(packet.raw.interface_name.clone());
