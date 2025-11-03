@@ -663,6 +663,12 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                         theme,
                     ));
                 }
+                details_text.push(create_aligned_field(
+                    "Vlan Id:".to_string(),
+                    host.vlan_id.map_or("-".to_string(), |id| id.to_string()),
+                    LABEL_WIDTH,
+                    theme,
+                ));
             } else if !host.get_interfaces().is_empty() {
                 // Show interfaces for gPTP hosts without IP addresses
                 let interfaces_display = host
@@ -754,6 +760,14 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                         create_aligned_field(
                             "Accuracy: ".to_string(),
                             format_clock_accuracy(s.clock_accuracy),
+                            LABEL_WIDTH,
+                            theme,
+                        ),
+                        create_aligned_field(
+                            "Steps Removed: ".to_string(),
+                            s.steps_removed
+                                .map(|d| d.to_string())
+                                .unwrap_or("N/A".to_string()),
                             LABEL_WIDTH,
                             theme,
                         ),
@@ -1450,9 +1464,9 @@ fn render_packet_history(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn render_packet_modal(f: &mut Frame, area: Rect, app: &mut App) {
     if let Some(packet) = app.get_modal_packet().cloned() {
-        // Calculate modal size (40% width with minimum 80 chars, 60% height)
+        // Calculate modal size (40% width with minimum 82 chars, 60% height)
         let preferred_width = (area.width as f32 * 0.4) as u16;
-        let modal_width = preferred_width.max(80);
+        let modal_width = preferred_width.max(82);
         let modal_height = (area.height as f32 * 0.6) as u16;
         let x = (area.width - modal_width) / 2;
         let y = (area.height - modal_height) / 2;
@@ -1771,7 +1785,7 @@ fn render_packet_details(
 
         all_lines.push(Line::from(vec![
             Span::styled(
-                format!("{:08x}:  ", offset_addr),
+                format!("{:08x}: ", offset_addr),
                 Style::default().fg(theme.text_secondary),
             ),
             Span::styled(hex_part, Style::default().fg(theme.text_primary)),
