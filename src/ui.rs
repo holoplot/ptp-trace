@@ -765,7 +765,9 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                         ),
                         create_aligned_field(
                             "Steps Removed: ".to_string(),
-                            format!("{}", s.steps_removed.unwrap_or(999)),
+                            s.steps_removed
+                                .map(|d| d.to_string())
+                                .unwrap_or("N/A".to_string()),
                             LABEL_WIDTH,
                             theme,
                         ),
