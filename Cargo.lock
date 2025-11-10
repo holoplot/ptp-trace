@@ -467,9 +467,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hifitime"
-version = "4.2.2"
+version = "4.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8813a4c78b7f391d4ab7f7facbf5b571cbbb608b633cdee0da5fd4138f6f6a86"
+checksum = "ae664976c51b75b30deb25aa778bff665169ca129104fb5f427e7154fc611ad5"
 dependencies = [
  "js-sys",
  "lexical-core",
