@@ -26,6 +26,8 @@ const GPTP_ETHERTYPE: u16 = 0x88f7;
 /// gPTP multicast MAC address (IEEE 802.1AS)
 const GPTP_MULTICAST_MAC: [u8; 6] = [0x01, 0x80, 0xc2, 0x00, 0x00, 0x0e];
 
+type InterfaceSourceType = (String, Option<Ipv4Addr>, Option<u16>);
+
 #[derive(Debug, Clone)]
 pub struct RawPacket {
     pub timestamp: std::time::SystemTime,
@@ -43,7 +45,7 @@ pub struct RawPacket {
 pub enum PacketSource {
     Socket {
         receiver: mpsc::UnboundedReceiver<RawPacket>,
-        interfaces: Vec<(String, Option<Ipv4Addr>)>,
+        interfaces: Vec<InterfaceSourceType>,
         _multicast_sockets: Vec<Socket>,
     },
     Pcap {
@@ -77,7 +79,7 @@ impl RawSocketReceiver {
         }
     }
 
-    pub fn get_interfaces(&self) -> &[(String, Option<Ipv4Addr>)] {
+    pub fn get_interfaces(&self) -> &[InterfaceSourceType] {
         match &self.source {
             PacketSource::Socket { interfaces, .. } => interfaces,
             PacketSource::Pcap { .. } => &[],
@@ -106,7 +108,7 @@ fn iface_addrs_by_name(ifname: &str) -> io::Result<Option<Ipv4Addr>> {
     Ok(v4)
 }
 
-fn get_all_interface_addrs() -> io::Result<Vec<(String, Option<Ipv4Addr>)>> {
+fn get_all_interface_addrs() -> io::Result<Vec<InterfaceSourceType>> {
     let mut interfaces = Vec::new();
 
     // Get available interfaces using pnet datalink
@@ -119,12 +121,13 @@ fn get_all_interface_addrs() -> io::Result<Vec<(String, Option<Ipv4Addr>)>> {
         }
 
         let interface_name = iface.name.clone();
+        let native_vlan_id: Option<u16> = None;
 
         // Get IPv4 addresses for this interface
         for ip in &iface.ips {
             if let IpAddr::V4(ipv4) = ip.ip() {
                 if !ipv4.is_loopback() && is_suitable_interface_name(&interface_name) {
-                    interfaces.push((interface_name.clone(), Some(ipv4)));
+                    interfaces.push((interface_name.clone(), Some(ipv4), native_vlan_id));
                     break; // Only take first IPv4 address per interface
                 } else {
                     println!("Excluding interface: {} (filtered)", interface_name);
@@ -185,7 +188,11 @@ fn join_multicast_group(interface_name: &str, interface_addr: Ipv4Addr) -> Resul
     Ok(socket)
 }
 
-fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<RawPacket> {
+fn process_ethernet_packet(
+    packet_data: &[u8],
+    interface_name: &str,
+    native_vlan_id: Option<u16>,
+) -> Option<RawPacket> {
     let ethernet = EthernetPacket::new(packet_data)?;
 
     let mut vlan_id: Option<u16> = None;
@@ -258,7 +265,7 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
             source_mac,
             dest_addr,
             dest_mac,
-            vlan_id,
+            vlan_id: vlan_id.or(native_vlan_id),
             ttl: None, // No TTL in Layer 2
             interface_name: interface_name.to_string(),
             ptp_payload,
@@ -306,7 +313,7 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
             source_mac,
             dest_addr,
             dest_mac,
-            vlan_id,
+            vlan_id: vlan_id.or(native_vlan_id),
             ttl,
             interface_name: interface_name.to_string(),
             ptp_payload,
@@ -319,6 +326,7 @@ fn process_ethernet_packet(packet_data: &[u8], interface_name: &str) -> Option<R
 
 async fn capture_on_interface(
     interface_name: String,
+    native_vlan_id: Option<u16>,
     sender: mpsc::UnboundedSender<RawPacket>,
     _multicast_socket: Socket,
 ) -> Result<()> {
@@ -354,7 +362,8 @@ async fn capture_on_interface(
     loop {
         match rx.next() {
             Ok(packet_data) => {
-                if let Some(raw_packet) = process_ethernet_packet(packet_data, &interface_name)
+                if let Some(raw_packet) =
+                    process_ethernet_packet(packet_data, &interface_name, native_vlan_id)
                     && sender.send(raw_packet).is_err()
                 {
                     // Receiver has been dropped, exit the loop
@@ -383,8 +392,18 @@ pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketR
         // Use specified interfaces
         let mut interfaces = Vec::new();
         for ifname in ifnames {
-            let iface_v4 = iface_addrs_by_name(ifname)?;
-            interfaces.push((ifname.clone(), iface_v4));
+            let parts: Vec<&str> = ifname.split(",").collect();
+            let mut native_vlan_id: Option<u16> = None;
+            let mut ifname_clone = ifname.clone();
+
+            if parts.len() > 1 {
+                ifname_clone = parts[0].to_string().clone();
+                native_vlan_id = parts[1].parse::<u16>().ok();
+            }
+
+            let iface_v4 = iface_addrs_by_name(&ifname_clone)?;
+
+            interfaces.push((ifname_clone, iface_v4, native_vlan_id));
         }
         interfaces
     };
@@ -399,7 +418,11 @@ pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketR
         "Starting live capture on: {}",
         target_interfaces
             .iter()
-            .map(|(name, _)| name.as_str())
+            .map(|(name, _, vlan_id)| format!(
+                "{0}({1})",
+                name.as_str(),
+                vlan_id.unwrap_or_default()
+            ))
             .collect::<Vec<_>>()
             .join(", ")
     );
@@ -408,9 +431,10 @@ pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketR
 
     // Set up multicast group membership and start packet capture for each interface
     let mut multicast_sockets = Vec::new();
-    for (interface_name, interface_addr) in &target_interfaces {
+    for (interface_name, interface_addr, native_vlan_id) in &target_interfaces {
         let sender_clone = sender.clone();
         let interface_name_clone = interface_name.clone();
+        let native_vlan_id_clone = *native_vlan_id;
 
         // Try to join multicast group if interface has an IP address
         let multicast_socket = if let Some(interface_addr) = interface_addr {
@@ -435,6 +459,7 @@ pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketR
                 }
             }
         } else {
+            println!("Registered {} for generic socket", interface_name);
             // Create a dummy socket for interfaces without IP addresses
             Socket::new(
                 socket2::Domain::IPV4,
@@ -448,9 +473,13 @@ pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketR
             // Stagger startup to reduce resource contention
             tokio::time::sleep(Duration::from_millis(200)).await;
 
-            if let Err(e) =
-                capture_on_interface(interface_name_clone.clone(), sender_clone, multicast_socket)
-                    .await
+            if let Err(e) = capture_on_interface(
+                interface_name_clone.clone(),
+                native_vlan_id_clone,
+                sender_clone,
+                multicast_socket,
+            )
+            .await
             {
                 eprintln!("Packet capture error on {}: {}", interface_name_clone, e);
             }
@@ -484,7 +513,7 @@ pub async fn create_pcap_receiver(pcap_path: &str) -> Result<RawSocketReceiver> 
             match block {
                 Ok(pcap_file::pcapng::Block::EnhancedPacket(epb)) => {
                     let packet_data = epb.data;
-                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap") {
+                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap", None) {
                         if last_timestamp.is_none()
                             || raw_packet.timestamp > last_timestamp.unwrap()
                         {
@@ -495,7 +524,7 @@ pub async fn create_pcap_receiver(pcap_path: &str) -> Result<RawSocketReceiver> 
                 }
                 Ok(pcap_file::pcapng::Block::SimplePacket(spb)) => {
                     let packet_data = spb.data;
-                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap") {
+                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap", None) {
                         if last_timestamp.is_none()
                             || raw_packet.timestamp > last_timestamp.unwrap()
                         {
@@ -525,7 +554,7 @@ pub async fn create_pcap_receiver(pcap_path: &str) -> Result<RawSocketReceiver> 
             match pkt {
                 Ok(packet) => {
                     let packet_data = packet.data;
-                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap") {
+                    if let Some(raw_packet) = process_ethernet_packet(&packet_data, "pcap", None) {
                         if last_timestamp.is_none()
                             || raw_packet.timestamp > last_timestamp.unwrap()
                         {

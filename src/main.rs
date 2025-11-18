@@ -52,6 +52,7 @@ pub struct Cli {
     command: Option<Commands>,
 
     /// Network interface(s) to monitor. Can be specified multiple times. If not specified, monitors all interfaces.
+    /// Use INTERFACE,native_vlan_id to specify native VLAN for untagged traffic.
     #[arg(short, long, conflicts_with = "pcap_file")]
     interface: Vec<String>,
 
