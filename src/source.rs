@@ -392,7 +392,7 @@ pub async fn create_raw_socket_receiver(ifnames: &[String]) -> Result<RawSocketR
         // Use specified interfaces
         let mut interfaces = Vec::new();
         for ifname in ifnames {
-            let parts: Vec<&str> = ifname.split(",").collect();
+            let parts: Vec<&str> = ifname.split(":").collect();
             let mut native_vlan_id: Option<u16> = None;
             let mut ifname_clone = ifname.clone();
 
