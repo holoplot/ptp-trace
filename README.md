@@ -34,6 +34,7 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - 🌳 **Tree view mode** - Hierarchical display showing transmitter-receiver relationships with proper indentation and PTT (Primary Time Transmitter) indicators
 - 🌳 Visual hierarchy mapping of transmitter-receiver relationships
 - 🏷️ **VLAN support** - Detects and displays VLAN tags in PTP packets
+- 🏷️ **Native VLAN** - Supports specifying native vlan id on interfaces to support better identification when mixed with tagged interfaces
 
 ### 📋 **Host Management**
 - 📝 Comprehensive host table with sortable columns
@@ -54,6 +55,8 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 ## 📄 PCAP File Analysis
 
 PTP Trace supports offline analysis of PTP traffic from pcap files in offline mode.
+
+Note: PCAP analysis does not support native vlan specification at this time.
 
 ### Creating PCAP Files:
 ```bash
@@ -223,6 +226,7 @@ Choose from multiple built-in themes. See the output of `ptp-trace --help` to ge
 - 📊 **Enhanced analytics** - Statistical analysis of timing data
 - 🔧 **Configuration management** - Save/load application settings
 - ⚡ **Hardware-accelerated filtering** - Use BPF filters for efficient packet capture
+- 🏷️ **Native VLAN support in PCAP fies** - Utilized the PCAP NG Interface Data Blocks to identify/specify native vlans for different interfaces.   This is not natively supported, today, in PCAP NG and a proposal is being prepared for proper support.
 
 ## 🛠️ Development
 
