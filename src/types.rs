@@ -122,6 +122,18 @@ fn test_ptp_timestamp_formatting() {
     timestamp[7] = ((nanos >> 16) & 0xff) as u8;
     timestamp[8] = ((nanos >> 8) & 0xff) as u8;
     timestamp[9] = (nanos & 0xff) as u8;
+
+    assert_eq!(timestamp[0], 0x00);
+    assert_eq!(timestamp[1], 0x00);
+    assert_eq!(timestamp[2], 0xe9);
+    assert_eq!(timestamp[3], 0x52);
+    assert_eq!(timestamp[4], 0x78);
+    assert_eq!(timestamp[5], 0x25);
+
+    assert_eq!(timestamp[6], 0x07);
+    assert_eq!(timestamp[7], 0x5b);
+    assert_eq!(timestamp[8], 0xcd);
+    assert_eq!(timestamp[9], 0x15);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -739,7 +739,7 @@ pub struct PtpTracker {
     // Track recent sync/follow-up senders per domain for transmitter-receiver correlation
     recent_sync_senders: HashMap<u8, Vec<(ClockIdentity, Instant)>>,
     // Track interfaces for determining inbound interface of packets
-    interfaces: Vec<(String, Option<std::net::Ipv4Addr>)>,
+    interfaces: Vec<(String, Option<std::net::Ipv4Addr>, Option<u16>)>,
 }
 
 impl PtpTracker {
@@ -1013,7 +1013,7 @@ impl PtpTracker {
     pub fn get_local_ips(&self) -> Vec<IpAddr> {
         self.interfaces
             .iter()
-            .filter_map(|(_, ip)| ip.map(std::net::IpAddr::V4))
+            .filter_map(|(_, ip, _)| ip.map(std::net::IpAddr::V4))
             .collect()
     }
 
