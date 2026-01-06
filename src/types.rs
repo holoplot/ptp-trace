@@ -621,7 +621,7 @@ pub struct AnnounceMessage {
     pub clock_class: PtpClockClass,
     pub clock_accuracy: PtpClockAccuracy,
     pub offset_scaled_log_variance: u16,
-    pub ptt_identity: ClockIdentity,
+    pub gm_identity: ClockIdentity,
     pub steps_removed: u16,
     pub time_source: u8,
 }
@@ -648,7 +648,7 @@ impl AnnounceMessage {
                 "Offset Scaled Log Variance".to_string(),
                 self.offset_scaled_log_variance.to_string(),
             ),
-            ("PTP Identity".to_string(), self.ptt_identity.to_string()),
+            ("GM Identity".to_string(), self.gm_identity.to_string()),
             ("Steps Removed".to_string(), self.steps_removed.to_string()),
             ("Time Source".to_string(), self.time_source.to_string()),
         ]
@@ -672,7 +672,7 @@ impl TryFrom<&[u8]> for AnnounceMessage {
                 clock_accuracy: PtpClockAccuracy::new(data[49]),
                 offset_scaled_log_variance: u16::from_be_bytes([data[50], data[51]]),
                 priority2: data[52],
-                ptt_identity: ClockIdentity::try_from(&data[53..61])?,
+                gm_identity: ClockIdentity::try_from(&data[53..61])?,
                 steps_removed: u16::from_be_bytes([data[61], data[62]]),
                 time_source: data[63],
             })

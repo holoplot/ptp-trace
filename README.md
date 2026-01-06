@@ -26,12 +26,12 @@ A powerful cross-platform terminal-based application for monitoring and analyzin
 - 🔍 **Full packet analysis** - Records both raw packet data and parsed PTP content
 - 🎯 **Smart interface selection** - Automatically filters virtual interfaces while supporting manual override
 - 🏷️ Host classification by PTP state
-- 🏆 **BMCA (Best Master Clock Algorithm)** - Automatic primary time transmitter detection
-- 📊 Primary Time Transmitter marked with "PTT" indicator
+- 🏆 **BMCA (Best Master Clock Algorithm)** - Automatic time transmitter detection
+- 📊 Grandmaster marked with "GM" indicator
 - 📈 Network statistics and quality metrics
 - 🕐 Timing relationship tracking
 - ⏸️ **Time reference modes** - Live network uses current system time; pcap mode uses last packet timestamp as reference
-- 🌳 **Tree view mode** - Hierarchical display showing transmitter-receiver relationships with proper indentation and PTT (Primary Time Transmitter) indicators
+- 🌳 **Tree view mode** - Hierarchical display showing transmitter-receiver relationships with proper indentation and GM (Grandmaster) indicators
 - 🌳 Visual hierarchy mapping of transmitter-receiver relationships
 - 🏷️ **VLAN support** - Detects and displays VLAN tags in PTP packets
 - 🏷️ **Native VLAN** - Supports specifying native vlan id on interfaces to support better identification when mixed with tagged interfaces
@@ -199,7 +199,8 @@ In accordance with [IEEE 1588g-2022](https://standards.ieee.org/ieee/1588g/10478
 |------------------------------------|-----------------------|----------------------------------------------|
 | **Time Transmitter**               | Master Clock          | Device that provides timing reference        |
 | **Time Receiver**                  | Slave Clock           | Device that synchronizes to timing reference |
-| **Primary Time Transmitter (PTT)** | Grandmaster Clock     | Best master clock selected by BMCA algorithm |
+
+The term **Grandmaster** remains unchanged and refers to the clock at the top of the hierarchy.
 
 The underlying PTP protocol and packet structures remain unchanged - only the user-facing terminology has been modernized for clarity and inclusivity.
 

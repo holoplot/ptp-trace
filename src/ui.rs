@@ -51,7 +51,7 @@ fn create_host_row<'a>(
     selected_index: usize,
     theme: &crate::themes::Theme,
     local_ips: &[std::net::IpAddr],
-    is_primary_transmitter: Option<bool>,
+    is_grandmaster: Option<bool>,
     app: &App,
 ) -> Row<'a> {
     let state_color = theme.get_state_color(&host.state);
@@ -77,9 +77,9 @@ fn create_host_row<'a>(
         state_display = format!("{}*", state_display);
     }
 
-    // Add PTT indicator for primary transmitters (BMCA winners) in tree mode
-    if is_primary_transmitter.unwrap_or(false) {
-        state_display = "PTT".to_string();
+    // Add GM indicator for grandmaster (BMCA winners) in tree mode
+    if is_grandmaster.unwrap_or(false) {
+        state_display = "GM".to_string();
     }
 
     let ip_display = if let Some(primary_ip) = host.get_primary_ip() {
@@ -427,7 +427,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
                     selected_index,
                     theme,
                     &local_ips,
-                    Some(node.is_primary_transmitter),
+                    Some(node.is_grandmaster),
                     app,
                 )
             })
@@ -779,9 +779,8 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
                             theme,
                         ),
                         create_aligned_field(
-                            "Primary Identity: ".to_string(),
-                            s.ptt_identifier
-                                .map_or("N/A".to_string(), |p| p.to_string()),
+                            "GM Identity: ".to_string(),
+                            s.gm_identifier.map_or("N/A".to_string(), |p| p.to_string()),
                             LABEL_WIDTH,
                             theme,
                         ),
@@ -1100,10 +1099,10 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         ]),
         Line::from(vec![
             Span::styled(
-                "  PTT",
+                "  GM",
                 Style::default().fg(theme.get_state_color(&time_transmitter_state)),
             ),
-            Span::raw(format!(" - {} (Primary)", time_transmitter_state)),
+            Span::raw(format!(" - {} (Grandmaster)", time_transmitter_state)),
         ]),
         Line::from(vec![
             Span::styled(
@@ -1133,7 +1132,7 @@ fn render_help(f: &mut Frame, area: Rect, app: &App) {
         Line::from("  This project uses inclusive terminology:"),
         Line::from("  • Time Transmitter = Master Clock"),
         Line::from("  • Time Receiver = Slave Clock"),
-        Line::from("  • Primary Time Transmitter (PTT) = Grandmaster Clock"),
+        Line::from("  • Grandmaster (GM) = Grandmaster Clock"),
     ]);
 
     let help_paragraph = Paragraph::new(help_text)

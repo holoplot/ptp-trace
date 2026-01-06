@@ -27,13 +27,13 @@ pub struct PtpHostStateTimeTransmitter {
     pub steps_removed: Option<u16>,
     pub offset_scaled_log_variance: Option<u16>,
     pub time_source: Option<u8>,
-    pub ptt_identifier: Option<ClockIdentity>,
+    pub gm_identifier: Option<ClockIdentity>,
     pub last_announce_origin_timestamp: Option<PtpTimestamp>,
     pub last_sync_origin_timestamp: Option<PtpTimestamp>,
     pub last_followup_origin_timestamp: Option<PtpTimestamp>,
     pub current_utc_offset: Option<PtpUtcOffset>,
     /// True if this transmitter has been selected as the Best Master Clock in its domain
-    /// BMCA winners are displayed as "PTT" (Primary Time Transmitter) in the UI
+    /// BMCA winners are displayed as "GM" (Grandmaster) in the UI
     pub is_bmca_winner: bool,
 }
 
@@ -52,7 +52,7 @@ impl PtpHostStateTimeTransmitter {
         self.offset_scaled_log_variance = Some(msg.offset_scaled_log_variance);
         self.steps_removed = Some(msg.steps_removed);
         self.time_source = Some(msg.time_source);
-        self.ptt_identifier = Some(msg.ptt_identity);
+        self.gm_identifier = Some(msg.gm_identity);
         self.current_utc_offset = Some(msg.current_utc_offset);
         self.last_announce_origin_timestamp = Some(msg.origin_timestamp);
     }
@@ -260,7 +260,7 @@ impl std::fmt::Display for PtpHostState {
             PtpHostState::Listening => write!(f, "Listening"),
             PtpHostState::TimeTransmitter(s) => {
                 if s.is_bmca_winner {
-                    write!(f, "Primary Time Transmitter")
+                    write!(f, "Grandmaster")
                 } else {
                     write!(f, "Time Transmitter")
                 }
@@ -362,7 +362,7 @@ impl PtpHostState {
             PtpHostState::Listening => "L",
             PtpHostState::TimeTransmitter(state) => {
                 if state.is_bmca_winner {
-                    "PTT"
+                    "GM"
                 } else {
                     "TT"
                 }

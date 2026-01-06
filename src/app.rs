@@ -108,7 +108,7 @@ pub struct TreeNode {
     pub host: PtpHost,
     pub children: Vec<TreeNode>,
     pub depth: usize,
-    pub is_primary_transmitter: bool,
+    pub is_grandmaster: bool,
 }
 
 pub struct App {
@@ -1115,7 +1115,7 @@ impl App {
                 host: (*host).clone(),
                 children: Vec::new(),
                 depth: 0,
-                is_primary_transmitter: matches!(host.state, PtpHostState::TimeTransmitter(_)),
+                is_grandmaster: matches!(host.state, PtpHostState::TimeTransmitter(_)),
             });
         }
 
@@ -1218,7 +1218,7 @@ impl App {
         let host = hosts[host_idx];
         processed.insert(host.clock_identity);
 
-        let is_primary_transmitter = match &host.state {
+        let is_grandmaster = match &host.state {
             PtpHostState::TimeTransmitter(transmitter_state) => {
                 // Use existing BMCA winner detection
                 transmitter_state.is_bmca_winner
@@ -1253,7 +1253,7 @@ impl App {
             host: (*host).clone(),
             children,
             depth,
-            is_primary_transmitter,
+            is_grandmaster,
         }
     }
 
