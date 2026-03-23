@@ -6,6 +6,7 @@ mod app;
 mod bounded_vec;
 mod oui_map;
 mod ptp;
+mod service;
 mod source;
 mod themes;
 mod types;
@@ -109,17 +110,18 @@ async fn main() -> Result<()> {
         source::create_raw_socket_receiver(&cli.interface).await?
     };
 
-    // Initialize the application
+    // Always create service layer and start gRPC server
+    use service::PtpServiceImpl;
+    let service = PtpServiceImpl::new(raw_socket_receiver).await?;
+
     let update_interval = Duration::from_millis(cli.update_interval);
     let mut app = App::new(
         update_interval,
         cli.debug,
         theme_name,
-        raw_socket_receiver,
+        service,
         !cli.no_mouse,
     )?;
-
-    // Run the TUI application
     app.run().await?;
 
     Ok(())

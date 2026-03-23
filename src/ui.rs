@@ -356,7 +356,7 @@ fn render_hosts_table(f: &mut Frame, area: Rect, app: &mut App) {
     let updated_scroll_offset = app.get_host_scroll_offset();
 
     // Get local IPs for comparison
-    let local_ips = app.ptp_tracker.get_local_ips();
+    let local_ips = app.cached_stats.local_ips.clone();
 
     let sort_column = app.get_sort_column();
     let headers = [
@@ -566,8 +566,8 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
     let theme = &app.theme;
     let hosts = app.get_hosts();
     let total_hosts = hosts.len();
-    let transmitter_count = app.ptp_tracker.get_transmitter_count();
-    let receiver_count = app.ptp_tracker.get_receiver_count();
+    let transmitter_count = app.cached_stats.transmitter_count;
+    let receiver_count = app.cached_stats.receiver_count;
 
     // Define the width for label alignment in statistics
     const STATS_LABEL_WIDTH: usize = 15; // Width for "Total Hosts: "
@@ -597,7 +597,7 @@ fn render_summary_stats(f: &mut Frame, area: Rect, app: &mut App) {
         ),
         create_aligned_field(
             "Last packet: ".to_string(),
-            format!("{}s ago", app.ptp_tracker.get_last_packet_age().as_secs()),
+            format!("{}s ago", app.cached_stats.last_packet_age_ms / 1000),
             STATS_LABEL_WIDTH,
             theme,
         ),
@@ -624,9 +624,9 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
     let theme = &app.theme;
 
     let details_text = if let Some(ref selected_host_id) = app.selected_host_id {
-        if let Some(host) = app.ptp_tracker.get_host_by_clock_identity(selected_host_id) {
+        if let Some(host) = app.cached_hosts.iter().find(|h| h.clock_identity == *selected_host_id) {
             // Get local IPs for comparison
-            let local_ips = app.ptp_tracker.get_local_ips();
+            let local_ips = app.cached_stats.local_ips.clone();
             // Define the width for label alignment
             const LABEL_WIDTH: usize = 22;
 

@@ -20,8 +20,11 @@ use tokio::time;
 
 use crate::types::{ClockIdentity, ParsedPacket};
 
+use std::sync::Arc;
+use std::time::SystemTime;
 use crate::{
-    ptp::{PtpHost, PtpHostState, PtpTracker},
+    ptp::{PtpHost, PtpHostState},
+    service::{PtpService, PtpStatistics},
     ui::ui,
 };
 
@@ -115,7 +118,11 @@ pub struct App {
     pub state: AppState,
     pub update_interval: Duration,
     pub debug: bool,
-    pub ptp_tracker: PtpTracker,
+    pub service: Arc<dyn PtpService>,
+    pub cached_hosts: Vec<PtpHost>,
+    pub cached_packet_history: Vec<crate::types::ParsedPacket>,
+    pub cached_stats: PtpStatistics,
+    pub reference_timestamp: Option<SystemTime>,
     pub last_update: Instant,
     pub selected_index: usize,
     pub host_scroll_offset: usize,
@@ -164,17 +171,20 @@ impl App {
         update_interval: Duration,
         debug: bool,
         theme_name: crate::themes::ThemeName,
-        raw_socket_receiver: crate::source::RawSocketReceiver,
+        service: Arc<dyn PtpService>,
         mouse_enabled: bool,
     ) -> Result<Self> {
-        let ptp_tracker = PtpTracker::new(raw_socket_receiver)?;
         let theme = crate::themes::Theme::new(theme_name);
 
-        let mut app = Self {
+        let app = Self {
             state: AppState::Running,
             update_interval,
             debug,
-            ptp_tracker,
+            service,
+            cached_hosts: Vec::new(),
+            cached_packet_history: Vec::new(),
+            cached_stats: PtpStatistics::default(),
+            reference_timestamp: None,
             last_update: Instant::now(),
             selected_index: 0,
             host_scroll_offset: 0,
@@ -211,10 +221,6 @@ impl App {
             last_click_position: (0, 0),
         };
 
-        // Set the max packet history on the tracker
-        app.ptp_tracker
-            .set_max_packet_history(app.max_packet_history);
-
         Ok(app)
     }
 
@@ -228,6 +234,8 @@ impl App {
         }
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
+
+        let _ = self.service.set_max_packet_history(self.max_packet_history).await;
 
         // Run the app
         let result = self.run_app(&mut terminal).await;
@@ -570,8 +578,10 @@ impl App {
                 self.force_redraw = true;
             }
             KeyCode::Char('c') => {
-                self.ptp_tracker.clear_hosts();
-                self.ptp_tracker.clear_all_packet_histories();
+                let _ = self.service.clear_hosts().await;
+                let _ = self.service.clear_all_packet_histories().await;
+                self.cached_hosts.clear();
+                self.cached_packet_history.clear();
                 self.selected_index = 0;
                 self.selected_host_id = None;
                 self.host_selection_changed = true;
@@ -678,7 +688,7 @@ impl App {
                 self.restore_host_selection();
             }
             KeyCode::Char('x') => {
-                self.clear_packet_history();
+                self.clear_packet_history().await;
             }
             KeyCode::Enter => {
                 if self.show_packet_modal {
@@ -704,16 +714,26 @@ impl App {
     }
 
     pub async fn update_data(&mut self) -> Result<()> {
-        // Skip network scanning if paused
         if self.paused {
             return Ok(());
         }
 
-        self.ptp_tracker.scan_network().await;
-        // Restore host selection to maintain stability when list changes
+        self.cached_hosts = self.service.get_hosts().await?;
+        self.cached_stats = self.service.get_statistics().await?;
+        self.reference_timestamp = self.cached_stats.last_packet_timestamp;
+
+        if let Some(ref id) = self.selected_host_id {
+            self.cached_packet_history = self
+                .service
+                .get_packet_history(id)
+                .await
+                .unwrap_or_default();
+        } else {
+            self.cached_packet_history.clear();
+        }
+
         self.restore_host_selection();
         self.last_update = Instant::now();
-
         Ok(())
     }
 
@@ -800,7 +820,7 @@ impl App {
         let total_hosts = if self.tree_view_mode {
             self.get_tree_item_count()
         } else {
-            self.ptp_tracker.get_hosts().len()
+            self.cached_hosts.len()
         };
 
         if total_hosts > 0 && self.selected_index > 0 {
@@ -817,7 +837,7 @@ impl App {
         let total_hosts = if self.tree_view_mode {
             self.get_tree_item_count()
         } else {
-            self.ptp_tracker.get_hosts().len()
+            self.cached_hosts.len()
         };
 
         if total_hosts > 0 && self.selected_index < total_hosts - 1 {
@@ -837,7 +857,7 @@ impl App {
         let total_hosts = if self.tree_view_mode {
             self.get_tree_item_count()
         } else {
-            self.ptp_tracker.get_hosts().len()
+            self.cached_hosts.len()
         };
 
         if total_hosts == 0 || visible_height == 0 {
@@ -883,7 +903,7 @@ impl App {
     }
 
     pub fn move_selection_page_up(&mut self) {
-        if self.ptp_tracker.get_hosts().is_empty() {
+        if self.cached_hosts.is_empty() {
             return;
         }
 
@@ -901,7 +921,7 @@ impl App {
         let total_hosts = if self.tree_view_mode {
             self.get_tree_item_count()
         } else {
-            self.ptp_tracker.get_hosts().len()
+            self.cached_hosts.len()
         };
 
         if total_hosts == 0 || visible_height == 0 {
@@ -937,7 +957,7 @@ impl App {
         let total_hosts = if self.tree_view_mode {
             self.get_tree_item_count()
         } else {
-            self.ptp_tracker.get_hosts().len()
+            self.cached_hosts.len()
         };
 
         if total_hosts > 0 {
@@ -951,7 +971,7 @@ impl App {
     }
 
     pub fn get_hosts(&self) -> Vec<&PtpHost> {
-        let mut hosts = self.ptp_tracker.get_hosts();
+        let mut hosts: Vec<&PtpHost> = self.cached_hosts.iter().collect();
 
         // Sort hosts based on current sort column
         hosts.sort_by(|a, b| {
@@ -1046,7 +1066,7 @@ impl App {
     }
 
     pub fn get_hosts_tree(&self) -> Vec<TreeNode> {
-        let hosts = self.ptp_tracker.get_hosts();
+        let hosts = self.cached_hosts.iter().collect::<Vec<_>>();
         let mut tree_nodes = Vec::new();
         let mut processed = std::collections::HashSet::new();
 
@@ -1288,14 +1308,7 @@ impl App {
     }
 
     pub fn get_packet_history(&self) -> Vec<ParsedPacket> {
-        // Return packets from the currently selected host
-        if let Some(ref selected_host_id) = self.selected_host_id
-            && let Some(history) = self.ptp_tracker.get_host_packet_history(*selected_host_id)
-        {
-            return history;
-        }
-
-        Vec::new()
+        self.cached_packet_history.clone()
     }
 
     fn find_host_index(&self, clock_identity: ClockIdentity) -> Option<usize> {
@@ -1335,7 +1348,7 @@ impl App {
         if self.tree_view_mode {
             self.get_tree_item_count()
         } else {
-            self.ptp_tracker.get_hosts().len()
+            self.cached_hosts.len()
         }
     }
 
@@ -1369,13 +1382,13 @@ impl App {
         self.clamp_and_update_selection(self.selected_index);
     }
 
-    pub fn clear_packet_history(&mut self) {
+    pub async fn clear_packet_history(&mut self) {
         if let Some(ref selected_host_id) = self.selected_host_id {
-            self.ptp_tracker
-                .clear_host_packet_history(*selected_host_id);
+            let _ = self.service.clear_host_packet_history(selected_host_id).await;
+            self.cached_packet_history.clear();
         } else {
-            // If no host is selected, clear all histories
-            self.ptp_tracker.clear_all_packet_histories();
+            let _ = self.service.clear_all_packet_histories().await;
+            self.cached_packet_history.clear();
         }
     }
 
@@ -1499,7 +1512,7 @@ impl App {
     }
 
     pub fn get_reference_timestamp(&self) -> Option<std::time::SystemTime> {
-        self.ptp_tracker.raw_socket_receiver.get_last_timestamp()
+        self.reference_timestamp
     }
 
     fn scroll_modal_up(&mut self) {

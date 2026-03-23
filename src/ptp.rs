@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
 pub struct PtpHostStateTimeTransmitter {
@@ -397,7 +397,7 @@ pub struct PtpHost {
 
     pub state: PtpHostState,
     pub last_correction_field: Option<PtpCorrectionField>,
-    pub packet_history: BoundedVec<Rc<ParsedPacket>>,
+    pub packet_history: BoundedVec<Arc<ParsedPacket>>,
 }
 
 impl PtpHost {
@@ -434,7 +434,6 @@ impl PtpHost {
         self.domain_number = Some(header.domain_number);
         self.last_version = Some(header.version);
         self.last_correction_field = Some(header.correction_field);
-        self.last_seen = SystemTime::now();
     }
 
     pub fn get_vendor_name(&self) -> Option<&'static str> {
@@ -555,7 +554,7 @@ impl PtpHost {
         self.ip_addresses.keys().any(|ip| local_ips.contains(ip))
     }
 
-    pub fn add_packet(&mut self, packet: Rc<ParsedPacket>) {
+    pub fn add_packet(&mut self, packet: Arc<ParsedPacket>) {
         self.packet_history.push(packet);
     }
 
@@ -754,20 +753,25 @@ impl PtpTracker {
         })
     }
 
-    pub async fn scan_network(&mut self) {
-        self.process_ptp_messages().await;
+    pub async fn scan_network(&mut self) -> Vec<Arc<ParsedPacket>> {
+        let packets = self.process_ptp_messages().await;
         self.cleanup_old_sync_senders();
         self.run_bmca_election();
+        packets
     }
 
-    async fn process_ptp_messages(&mut self) {
+    async fn process_ptp_messages(&mut self) -> Vec<Arc<ParsedPacket>> {
+        let mut processed_packets = Vec::new();
+
         // Process packets from raw socket capture
         for _ in 0..100 {
             // Limit iterations to prevent blocking too long
             match self.raw_socket_receiver.try_recv() {
                 Some(raw_packet) => {
                     let raw_packet_arc = std::sync::Arc::new(raw_packet);
-                    self.handle_raw_packet(raw_packet_arc).await;
+                    if let Some(packet) = self.handle_raw_packet(raw_packet_arc).await {
+                        processed_packets.push(packet);
+                    }
                     self.last_packet = Instant::now();
                 }
                 None => {
@@ -776,16 +780,18 @@ impl PtpTracker {
                 }
             }
         }
+
+        processed_packets
     }
 
-    async fn handle_raw_packet(&mut self, raw_packet: std::sync::Arc<crate::source::RawPacket>) {
+    async fn handle_raw_packet(&mut self, raw_packet: std::sync::Arc<crate::source::RawPacket>) -> Option<Arc<ParsedPacket>> {
         let msg = match PtpMessage::try_from(raw_packet.ptp_payload.as_slice()) {
             Ok(m) => m,
-            Err(_) => return, // Invalid message
+            Err(_) => return None, // Invalid message
         };
 
         // Create packet info for recording
-        let packet = Rc::new(ParsedPacket {
+        let packet = Arc::new(ParsedPacket {
             ptp: msg,
             raw: raw_packet.clone(),
         });
@@ -875,6 +881,7 @@ impl PtpTracker {
                 receiving_host.delay_resp_count += 1;
                 receiving_host.total_messages_received_count += 1;
                 receiving_host.state.update_from_delay_resp(&msg);
+                receiving_host.last_seen = raw_packet.timestamp;
                 receiving_host.add_packet(packet.clone());
             }
             PtpMessage::PDelayReq(_) => {
@@ -899,8 +906,9 @@ impl PtpTracker {
                 receiving_host.pdelay_resp_count += 1;
                 receiving_host.total_messages_received_count += 1;
                 receiving_host.state.update_from_pdelay_resp(&msg);
+                receiving_host.last_seen = raw_packet.timestamp;
 
-                receiving_host.add_packet(packet);
+                receiving_host.add_packet(packet.clone());
             }
             PtpMessage::PDelayRespFollowup(msg) => {
                 sending_host.pdelay_resp_follow_up_count += 1;
@@ -915,7 +923,8 @@ impl PtpTracker {
                 receiving_host.pdelay_resp_follow_up_count += 1;
                 receiving_host.total_messages_received_count += 1;
                 receiving_host.state.update_from_pdelay_resp_follow_up(&msg);
-                receiving_host.add_packet(packet);
+                receiving_host.last_seen = raw_packet.timestamp;
+                receiving_host.add_packet(packet.clone());
             }
             PtpMessage::FollowUp(msg) => {
                 sending_host.follow_up_count += 1;
@@ -933,6 +942,7 @@ impl PtpTracker {
         }
 
         self.last_packet = std::time::Instant::now();
+        Some(packet)
     }
 
     fn cleanup_old_sync_senders(&mut self) {
