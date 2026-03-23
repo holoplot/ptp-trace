@@ -971,6 +971,7 @@ impl PtpTracker {
         hosts
     }
 
+    #[allow(dead_code)]
     pub fn get_host_by_clock_identity(&self, clock_identity: &ClockIdentity) -> Option<&PtpHost> {
         self.hosts
             .values()

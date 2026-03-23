@@ -4,6 +4,7 @@ use std::time::Duration;
 
 mod app;
 mod bounded_vec;
+mod headless;
 mod oui_map;
 mod ptp;
 mod service;
@@ -75,6 +76,14 @@ pub struct Cli {
     /// Disable mouse support (mouse support is enabled by default)
     #[arg(long)]
     no_mouse: bool,
+
+    /// Run in headless mode (no TUI, just logging)
+    #[arg(long)]
+    headless: bool,
+
+    /// Log level for headless mode: error (critical events), warn (error + state changes), info (warn + discoveries, default), debug (info + all packets)
+    #[arg(long, default_value = "info", requires = "headless")]
+    log_level: String,
 }
 
 #[derive(Parser)]
@@ -114,15 +123,32 @@ async fn main() -> Result<()> {
     use service::PtpServiceImpl;
     let service = PtpServiceImpl::new(raw_socket_receiver).await?;
 
-    let update_interval = Duration::from_millis(cli.update_interval);
-    let mut app = App::new(
-        update_interval,
-        cli.debug,
-        theme_name,
-        service,
-        !cli.no_mouse,
-    )?;
-    app.run().await?;
+    // Run in headless mode or TUI mode
+    if cli.headless {
+        // Parse log level
+        use headless::LogLevel;
+        let log_level = LogLevel::from_str(&cli.log_level).unwrap_or_else(|| {
+            eprintln!(
+                "Invalid log level '{}', using 'info'. Valid levels: error, warn, info, debug",
+                cli.log_level
+            );
+            LogLevel::Info
+        });
+
+        // Run headless mode - log events and anomalies
+        use headless::run_headless_mode;
+        run_headless_mode(service, log_level).await?;
+    } else {
+        let update_interval = Duration::from_millis(cli.update_interval);
+        let mut app = App::new(
+            update_interval,
+            cli.debug,
+            theme_name,
+            service,
+            !cli.no_mouse,
+        )?;
+        app.run().await?;
+    }
 
     Ok(())
 }

@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 
 /// Statistics about the PTP monitoring service
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct PtpStatistics {
     pub total_hosts: usize,
     pub transmitter_count: usize,
@@ -42,6 +43,7 @@ pub trait PtpService: Send + Sync {
     async fn get_hosts(&self) -> Result<Vec<PtpHost>>;
 
     /// Get a specific host by clock identity
+    #[allow(dead_code)]
     async fn get_host_by_id(&self, clock_identity: &ClockIdentity) -> Result<Option<PtpHost>>;
 
     /// Get packet history for a specific host
