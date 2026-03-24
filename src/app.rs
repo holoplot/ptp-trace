@@ -20,13 +20,13 @@ use tokio::time;
 
 use crate::types::{ClockIdentity, ParsedPacket};
 
-use std::sync::Arc;
-use std::time::SystemTime;
 use crate::{
     ptp::{PtpHost, PtpHostState},
     service::{PtpService, PtpStatistics},
     ui::ui,
 };
+use std::sync::Arc;
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
@@ -235,7 +235,10 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        let _ = self.service.set_max_packet_history(self.max_packet_history).await;
+        let _ = self
+            .service
+            .set_max_packet_history(self.max_packet_history)
+            .await;
 
         // Run the app
         let result = self.run_app(&mut terminal).await;
@@ -1384,7 +1387,10 @@ impl App {
 
     pub async fn clear_packet_history(&mut self) {
         if let Some(ref selected_host_id) = self.selected_host_id {
-            let _ = self.service.clear_host_packet_history(selected_host_id).await;
+            let _ = self
+                .service
+                .clear_host_packet_history(selected_host_id)
+                .await;
             self.cached_packet_history.clear();
         } else {
             let _ = self.service.clear_all_packet_histories().await;

@@ -784,7 +784,10 @@ impl PtpTracker {
         processed_packets
     }
 
-    async fn handle_raw_packet(&mut self, raw_packet: std::sync::Arc<crate::source::RawPacket>) -> Option<Arc<ParsedPacket>> {
+    async fn handle_raw_packet(
+        &mut self,
+        raw_packet: std::sync::Arc<crate::source::RawPacket>,
+    ) -> Option<Arc<ParsedPacket>> {
         let msg = match PtpMessage::try_from(raw_packet.ptp_payload.as_slice()) {
             Ok(m) => m,
             Err(_) => return None, // Invalid message

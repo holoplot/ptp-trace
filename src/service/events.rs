@@ -136,15 +136,19 @@ impl ChangeType {
             ChangeType::VlanId { old, new } => {
                 format!(
                     "{} -> {}",
-                    old.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string()),
-                    new.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string())
+                    old.map(|v| v.to_string())
+                        .unwrap_or_else(|| "none".to_string()),
+                    new.map(|v| v.to_string())
+                        .unwrap_or_else(|| "none".to_string())
                 )
             }
             ChangeType::DomainNumber { old, new } => {
                 format!(
                     "{} -> {}",
-                    old.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string()),
-                    new.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string())
+                    old.map(|v| v.to_string())
+                        .unwrap_or_else(|| "none".to_string()),
+                    new.map(|v| v.to_string())
+                        .unwrap_or_else(|| "none".to_string())
                 )
             }
             ChangeType::State { old, new } => {

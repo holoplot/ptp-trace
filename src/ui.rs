@@ -624,7 +624,11 @@ fn render_host_details(f: &mut Frame, area: Rect, app: &mut App) {
     let theme = &app.theme;
 
     let details_text = if let Some(ref selected_host_id) = app.selected_host_id {
-        if let Some(host) = app.cached_hosts.iter().find(|h| h.clock_identity == *selected_host_id) {
+        if let Some(host) = app
+            .cached_hosts
+            .iter()
+            .find(|h| h.clock_identity == *selected_host_id)
+        {
             // Get local IPs for comparison
             let local_ips = app.cached_stats.local_ips.clone();
             // Define the width for label alignment

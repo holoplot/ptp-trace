@@ -132,10 +132,12 @@ impl PtpServiceImpl {
                 let hosts = tracker.get_hosts();
 
                 for host in hosts {
-                    service.emit_event(PtpEvent::HostUpdated {
-                        host: host.clone(),
-                        changes: vec![], // Empty changes - just a data refresh
-                    }).await;
+                    service
+                        .emit_event(PtpEvent::HostUpdated {
+                            host: host.clone(),
+                            changes: vec![], // Empty changes - just a data refresh
+                        })
+                        .await;
                 }
             }
         });
@@ -163,7 +165,9 @@ impl PtpServiceImpl {
                 } else {
                     None
                 },
-                selected_transmitter: if let crate::ptp::PtpHostState::TimeReceiver(ref s) = host.state {
+                selected_transmitter: if let crate::ptp::PtpHostState::TimeReceiver(ref s) =
+                    host.state
+                {
                     s.selected_transmitter_identity
                 } else {
                     None
@@ -248,23 +252,26 @@ impl PtpServiceImpl {
                 if prev.selected_transmitter != current_snapshot.selected_transmitter {
                     changes.push(ChangeType::SelectedTransmitter {
                         old: prev.selected_transmitter.map(|id| id.to_string()),
-                        new: current_snapshot.selected_transmitter.map(|id| id.to_string()),
+                        new: current_snapshot
+                            .selected_transmitter
+                            .map(|id| id.to_string()),
                     });
                 }
 
                 // Check for grandmaster changes
                 if current_snapshot.is_bmca_winner
-                    && let Some(domain) = current_snapshot.domain_number {
-                        let old_gm = domain_gms.insert(domain, clock_id);
-                        if old_gm.is_some() && old_gm != Some(clock_id) {
-                            self.emit_event(PtpEvent::GrandmasterChange {
-                                domain,
-                                old_gm,
-                                new_gm: clock_id,
-                            })
-                            .await;
-                        }
+                    && let Some(domain) = current_snapshot.domain_number
+                {
+                    let old_gm = domain_gms.insert(domain, clock_id);
+                    if old_gm.is_some() && old_gm != Some(clock_id) {
+                        self.emit_event(PtpEvent::GrandmasterChange {
+                            domain,
+                            old_gm,
+                            new_gm: clock_id,
+                        })
+                        .await;
                     }
+                }
 
                 if !changes.is_empty() {
                     self.emit_event(PtpEvent::HostUpdated {
@@ -280,9 +287,10 @@ impl PtpServiceImpl {
 
                 // Track if it's a GM
                 if current_snapshot.is_bmca_winner
-                    && let Some(domain) = current_snapshot.domain_number {
-                        domain_gms.insert(domain, clock_id);
-                    }
+                    && let Some(domain) = current_snapshot.domain_number
+                {
+                    domain_gms.insert(domain, clock_id);
+                }
             }
 
             previous_states.insert(clock_id, current_snapshot);
