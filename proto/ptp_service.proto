@@ -1,0 +1,201 @@
+syntax = "proto3";
+
+package ptp.v1;
+
+// PTP monitoring service
+service PtpService {
+  // Get list of all discovered PTP hosts
+  rpc ListHosts(ListHostsRequest) returns (ListHostsResponse);
+
+  // Get a specific host by clock identity
+  rpc GetHost(GetHostRequest) returns (GetHostResponse);
+
+  // Stream host updates in real-time
+  rpc StreamHosts(StreamHostsRequest) returns (stream HostEvent);
+
+  // Stream packets (both historical and real-time)
+  // Set history_only=true to get existing packets and close stream
+  // Set history_only=false (default) to get existing packets then continue streaming new ones
+  rpc StreamPackets(StreamPacketsRequest) returns (stream Packet);
+
+  // Get statistics
+  rpc GetStatistics(GetStatisticsRequest) returns (GetStatisticsResponse);
+
+  // Clear all hosts
+  rpc ClearHosts(ClearHostsRequest) returns (ClearHostsResponse);
+}
+
+// Messages for ListHosts
+message ListHostsRequest {}
+
+message ListHostsResponse {
+  repeated Host hosts = 1;
+}
+
+// Messages for GetHost
+message GetHostRequest {
+  string clock_identity = 1; // Hex string format
+}
+
+message GetHostResponse {
+  Host host = 1;
+}
+
+// Messages for StreamHosts
+message StreamHostsRequest {}
+
+message HostEvent {
+  enum EventType {
+    DISCOVERED = 0;
+    UPDATED = 1;
+    TIMEOUT = 2;
+  }
+
+  EventType event_type = 1;
+  Host host = 2;
+  repeated string changes = 3; // List of changed fields for UPDATED events
+}
+
+// Messages for StreamPackets
+message StreamPacketsRequest {
+  // If provided, only stream packets for this host
+  optional string clock_identity = 1;
+
+  // If true, only return historical packets then close stream
+  // If false (default), return historical packets then continue streaming new ones
+  bool history_only = 2;
+
+  // Max number of historical packets to return (0 = unlimited)
+  uint32 limit = 3;
+}
+
+// Messages for GetStatistics
+message GetStatisticsRequest {}
+
+message GetStatisticsResponse {
+  Statistics stats = 1;
+}
+
+// Messages for ClearHosts
+message ClearHostsRequest {}
+
+message ClearHostsResponse {
+  uint32 cleared_count = 1;
+}
+
+// PTP message types (from IEEE 1588)
+enum PtpMessageType {
+  PTP_MESSAGE_TYPE_SYNC = 0;
+  PTP_MESSAGE_TYPE_DELAY_REQ = 1;
+  PTP_MESSAGE_TYPE_PDELAY_REQ = 2;
+  PTP_MESSAGE_TYPE_PDELAY_RESP = 3;
+  PTP_MESSAGE_TYPE_FOLLOW_UP = 8;
+  PTP_MESSAGE_TYPE_DELAY_RESP = 9;
+  PTP_MESSAGE_TYPE_PDELAY_RESP_FOLLOW_UP = 10;
+  PTP_MESSAGE_TYPE_ANNOUNCE = 11;
+  PTP_MESSAGE_TYPE_SIGNALING = 12;
+  PTP_MESSAGE_TYPE_MANAGEMENT = 13;
+}
+
+// PTP protocol version
+enum PtpVersion {
+  PTP_VERSION_UNKNOWN = 0;
+  PTP_VERSION_1 = 1;
+  PTP_VERSION_2 = 2;
+}
+
+// Data models
+message Host {
+  string clock_identity = 1;
+  repeated IpAddress ip_addresses = 2;
+  repeated string interfaces = 3;
+  optional uint32 vlan_id = 4;
+  optional uint32 domain_number = 5;
+  optional PtpVersion version = 6;
+  optional string vendor = 7; // MAC vendor from OUI lookup
+
+  // Message counters
+  uint32 announce_count = 8;
+  uint32 sync_count = 9;
+  uint32 follow_up_count = 10;
+  uint32 delay_req_count = 11;
+  uint32 delay_resp_count = 12;
+  uint32 pdelay_req_count = 13;
+  uint32 pdelay_resp_count = 14;
+  uint32 pdelay_resp_follow_up_count = 15;
+  uint32 total_messages_sent_count = 16;
+  uint32 total_messages_received_count = 17;
+  uint32 signaling_message_count = 18;
+  uint32 management_message_count = 19;
+
+  // State
+  HostState state = 20;
+
+  // Clock quality (if transmitter)
+  optional ClockQuality clock_quality = 21;
+
+  // Last correction field value (nanoseconds as string to avoid overflow)
+  optional string last_correction_field = 22;
+}
+
+message IpAddress {
+  string ip = 1; // String representation
+  repeated string interfaces = 2; // Interfaces where this IP was seen
+}
+
+message HostState {
+  enum StateType {
+    LISTENING = 0;
+    TIME_TRANSMITTER = 1;
+    TIME_RECEIVER = 2;
+  }
+
+  StateType state_type = 1;
+  bool is_grandmaster = 2; // True if BMCA winner
+  optional string selected_transmitter = 3; // For TIME_RECEIVER state
+}
+
+message ClockQuality {
+  uint32 clock_class = 1;
+  uint32 clock_accuracy = 2;
+  uint32 offset_scaled_log_variance = 3;
+  optional uint32 priority1 = 4;
+  optional uint32 priority2 = 5;
+  optional string gm_identifier = 6;
+  optional uint32 steps_removed = 7;
+  optional string last_sync_origin_timestamp = 8; // PTP timestamp as string
+  optional string last_followup_origin_timestamp = 9; // PTP timestamp as string
+  optional sint32 current_utc_offset = 10; // UTC offset in seconds
+}
+
+message Packet {
+  PtpMessageType message_type = 1;
+  string source_clock_id = 2;
+  uint32 domain_number = 3;
+  string timestamp = 4; // Unix timestamp in nanoseconds (as string to avoid JS overflow)
+  optional string source_ip = 5;
+  string interface = 6;
+  optional uint32 vlan_id = 7;
+  uint32 sequence_id = 8;
+  bytes raw_payload = 9; // Full raw PTP packet payload for hexdump display
+  bytes raw_ethernet_frame = 10; // Full Ethernet frame (if available, for Layer 2)
+  PtpVersion version = 11; // PTP protocol version
+
+  // PTP Header fields
+  uint32 message_length = 12;
+  string flags = 13; // Hex string representation of flags (e.g., "0008")
+  string correction_field = 14; // Nanoseconds as string
+  int32 log_message_interval = 15; // Log base 2 of message interval in seconds
+}
+
+message Statistics {
+  uint32 total_hosts = 1;
+  uint32 transmitter_count = 2;
+  uint32 receiver_count = 3;
+  uint32 listening_count = 4;
+  uint64 last_packet_age_ms = 5;
+  uint64 total_packets = 6;
+  string hostname = 7; // System hostname where backend is running
+  repeated string interfaces = 8; // Network interfaces being monitored
+  string version = 9; // Backend version string
+}

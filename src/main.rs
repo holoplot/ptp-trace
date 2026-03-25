@@ -4,6 +4,7 @@ use std::time::Duration;
 
 mod app;
 mod bounded_vec;
+mod grpc;
 mod headless;
 mod oui_map;
 mod ptp;
@@ -84,6 +85,10 @@ pub struct Cli {
     /// Log level for headless mode: error (critical events), warn (error + state changes), info (warn + discoveries, default), debug (info + all packets)
     #[arg(long, default_value = "info", requires = "headless")]
     log_level: String,
+
+    /// Web server port for gRPC API and static files (default: 50051). Server always attempts to start but continues if port is unavailable
+    #[arg(long, default_value = "50051")]
+    web_port: u16,
 }
 
 #[derive(Parser)]
@@ -122,6 +127,17 @@ async fn main() -> Result<()> {
     // Always create service layer and start gRPC server
     use service::PtpServiceImpl;
     let service = PtpServiceImpl::new(raw_socket_receiver).await?;
+
+    // Start web server in background (always attempt, warn if it fails)
+    let web_addr = format!("0.0.0.0:{}", cli.web_port);
+    let web_service = service.clone();
+    tokio::spawn(async move {
+        use grpc::server::start_grpc_server;
+        if let Err(e) = start_grpc_server(web_addr, web_service).await {
+            eprintln!("Warning: Web server failed to start: {}", e);
+            eprintln!("Continuing without web API...");
+        }
+    });
 
     // Run in headless mode or TUI mode
     if cli.headless {

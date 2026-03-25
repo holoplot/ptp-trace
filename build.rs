@@ -38,6 +38,15 @@ pub const BUILD_TIME: &str = "{}";
     // Tell cargo to rerun if git HEAD changes
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/index");
+
+    // Compile protobuf files for gRPC
+    tonic_build::configure()
+        .build_server(true)
+        .build_client(false) // We don't need client code
+        .compile_protos(&["proto/ptp_service.proto"], &["proto"])
+        .expect("Failed to compile protobuf files");
+
+    println!("cargo:rerun-if-changed=proto/ptp_service.proto");
 }
 
 fn get_git_version() -> String {
