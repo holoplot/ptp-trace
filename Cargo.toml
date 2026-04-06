@@ -32,7 +32,7 @@ rust-embed = "8.5"
 mime_guess = "2.0"
 http = "1.2"
 http-body-util = "0.1"
-hyper = "1.6"
+hyper = "1.9"
 hyper-util = { version = "0.1", features = ["tokio"] }
 bytes = "1.9"
 hostname = "0.4"
