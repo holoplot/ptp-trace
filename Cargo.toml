@@ -21,7 +21,7 @@ pcap-file = "2.0"
 hifitime = "4.2"
 libc = "0.2"
 tonic = "0.12"
-tonic-web = "0.12"
+tonic-web = "0.14"
 prost = "0.13"
 tower = { version = "0.5", features = ["util"] }
 axum = "0.7"
