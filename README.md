@@ -15,6 +15,10 @@ PTP Trace offers two flexible modes of operation:
 
 All modes share a common service layer and support both live packet capture and offline PCAP analysis.
 
+## Demo
+
+![Demo](demo.gif)
+
 ## Features
 
 ### **Two Operation Modes**
@@ -226,10 +230,6 @@ sudo tcpdump -i eth0 -w ptp_capture.pcap 'udp port 319 or udp port 320 or ether 
 ```
 
 Note: PCAP analysis does not support native VLAN specification at this time.
-
-## Demo
-
-![Demo](demo.gif)
 
 ## Terminology & Inclusive Language
 
