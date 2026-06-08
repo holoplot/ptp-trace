@@ -22,7 +22,7 @@ hifitime = "4.2"
 libc = "0.2"
 tonic = "0.12"
 tonic-web = "0.12"
-prost = "0.13"
+prost = "0.14"
 tower = { version = "0.5", features = ["util"] }
 axum = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
